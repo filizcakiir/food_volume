@@ -1,0 +1,119 @@
+\section{GİRİŞ}
+
+\subsection{Çalışmanın Amacı ve Kapsamı}
+
+Günümüzde obezite ve aşırı kilo, küresel ölçekte halk sağlığını tehdit eden en önemli sorunlardan biri haline gelmiştir. Dünya Sağlık Örgütü (WHO) 2023 verilerine göre, dünya genelinde 2 milyardan fazla yetişkin aşırı kilolu ve 650 milyonu obez kategorisinde yer almaktadır \cite{who2023obesity}. Türkiye'de ise Sağlık Bakanlığı Türkiye Beslenme ve Sağlık Araştırması (TBSA) 2019 sonuçlarına göre, yetişkin nüfusun \%64.4'ü aşırı kilolu, \%29.9'u ise obez durumundadır \cite{tbsa2019}. Bu veriler, sağlıklı beslenme ve kalori kontrolünün toplum sağlığı açısından kritik önemini ortaya koymaktadır.
+
+Beslenme alışkanlıklarının izlenmesi ve günlük kalori alımının kontrolü, kilo yönetimi ve metabolik hastalıkların önlenmesinde temel stratejilerden biridir \cite{bateman2011process, cordeiro2015barriers}. Ancak, geleneksel manuel kalori takibi yöntemleri, kullanıcılar için zaman alıcı, yorucu ve düşük motivasyona yol açan süreçlerdir. Hall ve ark. \cite{hall2022calories} tarafından yapılan çalışmada, mobil kalori takibi uygulamalarının kullanıcı devam oranının ilk ay sonunda \%25'in altına düştüğü rapor edilmiştir. Bu düşük devam oranının temel nedenleri arasında, her öğünde yemeklerin manuel olarak aranması, porsiyon ağırlıklarının tahmin edilmesindeki zorluk ve veri girişinin operasyonel yükü yer almaktadır.
+
+Son yıllarda bilgisayarlı görü (computer vision) ve derin öğrenme (deep learning) alanındaki gelişmeler, yemek tanıma sistemlerinin geliştirilmesine olanak sağlamıştır. Bossard ve ark. \cite{bossard2014food101} tarafından sunulan Food-101 veri seti ve bu veri seti üzerinde geliştirilen sınıflandırma modelleri, otomatik yemek tanıma literatürünün temelini oluşturmuştur. Benzer şekilde, He ve ark. \cite{he2016resnet} tarafından önerilen Residual Network (ResNet) mimarisi, görüntü sınıflandırma görevlerinde devrim yaratmış ve transfer öğrenme (transfer learning) yöntemiyle farklı domain'lere uyarlanmıştır.
+
+Bu çalışmanın amacı, derin öğrenme tabanlı bir yemek tanıma ve kalori hesaplama sistemi geliştirerek, kullanıcıların mobil cihazları ile çektikleri tek bir fotoğraftan yemek türünü, porsiyon ağırlığını ve kalori değerini otomatik olarak belirlemelerini sağlamaktır. GastronomGöz olarak adlandırılan sistem, şu temel fonksiyonellikleri içermektedir:
+
+\begin{itemize}
+    \item 101 sınıf yemek türünü tanıyabilen ResNet50 tabanlı sınıflandırma modeli
+    \item U2NET \cite{qin2020u2net} mimarisi kullanılarak yemeğin arka plandan ayrıştırılması (segmentasyon)
+    \item Monoküler derinlik tahmini için MiDaS \cite{ranftl2020midas} algoritması entegrasyonu
+    \item Segmentasyon maskesi ve porsiyon veritabanı kullanılarak ağırlık tahmini
+    \item Günlük kalori takibi ve kullanıcı profil yönetimi
+    \item Cross-platform mobil uygulama (iOS ve Android desteği)
+\end{itemize}
+
+Sistemin geliştirilmesinde Python programlama dili, PyTorch \cite{paszke2019pytorch} ve TensorFlow \cite{abadi2016tensorflow} derin öğrenme framework'leri, Flask \cite{grinberg2018flask} web framework'ü ve Flutter \cite{wu2018flutter} mobil uygulama framework'ü kullanılmıştır.
+
+\subsection{Problem Tanımı}
+
+Sağlıklı beslenme ve kilo kontrolü için kalori takibi yapan bireylerin karşılaştığı temel sorunlar şu şekilde sıralanabilir:
+
+\textbf{Manuel Veri Girişi Yükü:} MyFitnessPal, Noom ve benzeri popüler uygulamalar, kullanıcıların her öğünde yemeklerini manuel olarak aramasını ve seçmesini gerektirmektedir. Chen ve ark. \cite{chen2019food} tarafından yapılan kullanılabilirlik çalışmasında, ortalama bir öğün kaydının 5-7 dakika sürdüğü ve bu sürenin kullanıcı motivasyonunu olumsuz etkilediği belirlenmiştir.
+
+\textbf{Porsiyon Tahmini Hatası:} Amoutzo ve ark. \cite{amoutzo2021portion} tarafından gerçekleştirilen çalışmada, kullanıcıların porsiyon ağırlıklarını tahmin ederken ortalama \%30-40 oranında hata yaptığı gösterilmiştir. Bu hata, günlük kalori hesaplamalarında ciddi sapmalara yol açmaktadır.
+
+\textbf{Ev Yemekleri ve Yerel Mutfak Problemi:} Mevcut uygulamaların çoğu, restoran menülerindeki standart yemeklere odaklanmakta ve ev yapımı yemekler ile yerel mutfak kültürüne özgü yemekleri kapsamamaktadır. Farklı ülkelerin geleneksel yemekleri için veri girişi özellikle problematiktir.
+
+\textbf{Düşük Kullanıcı Devamlılığı:} Cordeiro ve ark. \cite{cordeiro2015barriers} tarafından 200 katılımcı ile yapılan uzunlamasına çalışmada, kalori takibi uygulamalarının 3 ay içinde \%74 oranında terk edildiği rapor edilmiştir.
+
+Bu sorunların çözümü için, yapay zeka destekli otomatik yemek tanıma sistemleri geliştirilmektedir. Min ve ark. \cite{min2023deep} tarafından yapılan kapsamlı literatür taramasında, derin öğrenme tabanlı yemek tanıma sistemlerinin son 5 yılda \%600 oranında arttığı belirlenmiştir.
+
+\subsection{Literatür Taraması}
+
+\subsubsection{Yemek Tanıma Sistemleri}
+
+Otomatik yemek tanıma, bilgisayarlı görü ve makine öğrenmesi alanında aktif bir araştırma konusudur. İlk çalışmalar, el yapımı özellikler (handcrafted features) ve geleneksel sınıflandırıcılar kullanmıştır. Yang ve ark. \cite{yang2010food} tarafından önerilen sistem, SIFT özellikleri ve Bag-of-Words modeli ile 50 yemek sınıfını \%65 doğrulukla tanımlamıştır.
+
+Derin öğrenme çağının başlamasıyla birlikte, evrişimsel sinir ağları (CNN) yemek tanımada dominant hale gelmiştir. Kagaya ve ark. \cite{kagaya2014food} tarafından geliştirilen UEC-FOOD 100 veri seti ve DeepFood \cite{liu2016deepfood} çalışması, ImageNet \cite{deng2009imagenet} pre-trained modellerinin yemek tanıma domaininde transfer öğrenme ile kullanılabileceğini göstermiştir.
+
+Bossard ve ark. \cite{bossard2014food101} tarafından sunulan Food-101 veri seti, 101 sınıf ve toplam 101,000 görüntü ile yemek tanıma araştırmalarının standart benchmark'ı haline gelmiştir. Bu veri seti üzerinde yapılan çalışmalarda, ResNet-50 \cite{he2016resnet}, Inception-v3 \cite{szegedy2016inceptionv3} ve EfficientNet \cite{tan2019efficientnet} gibi modern CNN mimarileri kullanılarak \%85-90 arasında Top-1 doğruluk oranları elde edilmiştir.
+
+\subsubsection{Görüntü Segmentasyonu}
+
+Yemek tanıma sistemlerinde, yemeğin arka plandan ayrıştırılması (foreground-background segmentation) porsiyon tahmini için kritik öneme sahiptir. Geleneksel segmentasyon yöntemleri (GrabCut \cite{rother2004grabcut}, Watershed) manuel kullanıcı müdahalesi gerektirmektedir.
+
+Derin öğrenme tabanlı semantik segmentasyon alanında, Long ve ark. \cite{long2015fcn} tarafından önerilen Fully Convolutional Networks (FCN) mimarisi öncü çalışmadır. Ronneberger ve ark. \cite{ronneberger2015unet} tarafından geliştirilen U-Net mimarisi, encoder-decoder yapısıyla medikal görüntü segmentasyonunda yüksek performans göstermiştir.
+
+Qin ve ark. \cite{qin2020u2net} tarafından önerilen U2-Net mimarisi, nested U-structure yapısı ile daha derin özellik öğrenme kapasitesine sahiptir ve görüntü saliency detection görevinde state-of-the-art sonuçlar elde etmiştir. U2NET-P (lightweight) versiyonu, 4.7M parametre ile mobil ve embedded sistemler için uygun hale getirilmiştir.
+
+\subsubsection{Porsiyon ve Hacim Tahmini}
+
+Yemek görüntülerinden ağırlık tahmini, yemek tanıma sistemlerinin en  zorlayıcı alt problemlerinden biridir. Mevcut yaklaşımlar üç ana kategoride incelenebilir:
+
+\textbf{Referans Nesne Tabanlı Yöntemler:} Puri ve ark. \cite{puri2009automated} tarafından önerilen sistemde, sahneye bilinen boyutta bir referans nesne (örn. madeni para, çatal) yerleştirilerek ölçekleme yapılmaktadır. Bu yöntem, kullanıcıdan ekstra efor gerektirmesi nedeniyle pratik uygulamalarda sınırlı kullanıma sahiptir.
+
+\textbf{Monoküler Derinlik Tahmini Tabanlı Yöntemler:} Tek kamera görüntüsünden derinlik bilgisi çıkarmak için Eigen ve ark. \cite{eigen2014depth} ve Ranftl ve ark. \cite{ranftl2020midas} tarafından önerilen derin öğrenme modelleri kullanılmaktadır. MiDaS (Monocular Depth Estimation) modeli, çok ölçekli görüntüler üzerinde eğitilerek robustluk sağlamıştır.
+
+\textbf{Veri Tabanlı Porsiyon Tahmini:} Fang ve ark. \cite{fang2018nutrition5k} tarafından önerilen Nutrition5k veri seti, her yemek için gerçek ağırlık ve hacim bilgisi içermektedir. Bu veri seti kullanılarak, yemek sınıfı ve segmentasyon maskesi alanına dayalı regresyon modelleri eğitilmektedir.
+
+\subsubsection{Mobil Sağlık Uygulamaları}
+
+Mobil cihazlarda çalışan sağlık uygulamaları (mHealth), kullanıcıların günlük yaşamlarında sağlık verilerini takip etmelerini kolaylaştırmaktadır. Firebase \cite{moroney2017firebase} ve AWS Amplify gibi cloud backend servisleri, mobil sağlık uygulamalarının hızlı geliştirilebilmesini sağlamaktadır.
+
+Flutter \cite{wu2018flutter} framework'ü, Dart programlama dili kullanarak tek codebase ile iOS ve Android platformlarında çalışabilen uygulamalar geliştirme imkanı sunmaktadır. Biessek ve ark. \cite{biessek2020performance} tarafından yapılan performans karşılaştırmasında, Flutter'ın native uygulamalara yakın performans gösterdiği rapor edilmiştir.
+
+\subsubsection{Mevcut Sistemler ve Eksiklikleri}
+
+Piyasada bulunan AI destekli kalori takibi uygulamaları arasında Calorie Mama, Foodvisor, Bitesnap ve Lose It! yer almaktadır. Bu uygulamaların karşılaştırmalı analizi Tablo \ref{tab:existing_systems}'de sunulmuştur.
+
+\begin{table}[h]
+\centering
+\caption{Mevcut AI Destekli Kalori Takibi Uygulamalarının Karşılaştırması}
+\label{tab:existing_systems}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Özellik} & \textbf{Calorie Mama} & \textbf{Foodvisor} & \textbf{Bitesnap} & \textbf{GastronomGöz} \\ \hline
+AI Yemek Tanıma & \checkmark & \checkmark & \checkmark & \checkmark \\ \hline
+Sınıf Sayısı & 1000+ & 1200+ & 500+ & 101 \\ \hline
+Ağırlık Tahmini & \checkmark & \checkmark & $\times$ & \checkmark \\ \hline
+Segmentasyon & $\times$ & \checkmark & $\times$ & \checkmark \\ \hline
+Türkçe Dil Desteği & $\times$ & $\times$ & $\times$ & \checkmark \\ \hline
+Açık Kaynak & $\times$ & $\times$ & $\times$ & Kısmi \\ \hline
+Ücretlendirme & \$9.99/ay & \$12.99/ay & \$8.99/ay & Ücretsiz \\ \hline
+\end{tabular}
+\end{table}
+
+Mevcut sistemlerin temel eksiklikleri şu şekilde özetlenebilir:
+
+\begin{itemize}
+    \item Yerel ve bölgesel yemeklerin tanınmasında yetersizlik
+    \item Yüksek aylık abonelik ücretleri (\$8-15 arası)
+    \item Segmentasyon kalitesinin düşük olması
+    \item Offline (çevrimdışı) mod desteğinin bulunmaması
+    \item Kullanıcı geri bildirim mekanizmalarının yetersizliği
+\end{itemize}
+
+\subsection{Çalışmanın Katkıları}
+
+Bu tez çalışmasının bilimsel ve teknolojik katkıları aşağıdaki gibidir:
+
+\begin{enumerate}
+    \item \textbf{Modüler AI Pipeline:} Yemek sınıflandırma, segmentasyon ve derinlik tahmini modellerinin entegre edildiği modüler bir yapay zeka işlem hattı geliştirilmiştir.
+
+    \item \textbf{Porsiyon Bazlı Ağırlık Tahmini Algoritması:} Segmentasyon maskesi alanı ve yemek sınıfına özgü porsiyon veritabanı kullanılarak, referans nesneye ihtiyaç duymayan bir ağırlık tahmini yöntemi önerilmiştir.
+
+    \item \textbf{Lazy Loading ve Singleton Pattern:} Mobil ortamlarda sınırlı kaynaklarda çalışabilmek için, modellerin gerektiğinde yüklenmesini sağlayan (lazy loading) ve singleton pattern ile bellek verimliliği sağlayan bir mimari tasarlanmıştır.
+
+    \item \textbf{Full-Stack Uygulama Geliştirme:} Backend API (Flask), veritabanı yönetimi (SQLAlchemy), JWT authentication ve cross-platform mobil uygulama (Flutter) içeren eksiksiz bir sistem implementasyonu gerçekleştirilmiştir.
+
+    \item \textbf{Türkçe Dil Desteği:} Türk kullanıcılar için yerelleştirilmiş arayüz ve Türkçe yemek adları desteği sağlanmıştır.
+\end{enumerate}
+
+\pagebreak{}

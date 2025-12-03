@@ -1,0 +1,825 @@
+\section{ÖNERİLEN SİSTEM VE İMPLEMENTASYON}
+
+Bu bölümde, GastronomGöz sisteminin önerilen mimarisi ve implementasyonu detaylı olarak açıklanmaktadır. Sistemin geliştirilmesi sürecinde backend API mimarisi, veritabanı tasarımının uygulanması, derin öğrenme modellerinin entegrasyonu, mobil uygulama geliştirme süreci ve deployment işlemleri ayrı alt başlıklar halinde sunulmaktadır.
+
+\subsection{Backend API Mimarisi ve İmplementasyonu}
+
+\subsubsection{Proje Dizin Yapısı ve Modüler Mimari}
+
+Backend projesi, separation of concerns prensibi doğrultusunda modüler bir yapıda organize edilmiştir \cite{martin2009clean}. Toplam 33 Python dosyası ve 4 ana modülden oluşan bu yapı, kodun okunabilirliğini, bakımını ve test edilebilirliğini artırmaktadır.
+
+\begin{verbatim}
+backend/
+├── app.py                    # Flask application factory
+├── config.py                 # Environment-based configuration
+├── requirements.txt          # Python dependencies
+├── models/
+│   ├── user.py              # User, UserProfile ORM models
+│   └── history.py           # PredictionHistory, DailyLog models
+├── schemas/
+│   ├── auth_schema.py       # Authentication validation
+│   └── user_schema.py       # User profile validation
+├── api/
+│   ├── auth.py              # Authentication endpoints (5)
+│   ├── user.py              # User profile endpoints (3)
+│   ├── prediction.py        # AI prediction endpoints (2)
+│   └── history.py           # History & analytics endpoints
+├── core/
+│   ├── ai_engine.py         # Model manager (Singleton pattern)
+│   ├── image_processor.py   # Image processing pipeline
+│   └── weight_calculator.py # Portion estimation algorithm
+├── middleware/
+│   └── error_handler.py     # Global error handling
+├── utils/
+│   └── validators.py        # Custom validators
+└── static/
+    └── uploads/             # User-uploaded images
+\end{verbatim}
+
+Bu dizin organizasyonu, Model-View-Controller (MVC) mimarisinin bir varyasyonu olarak değerlendirilebilir. \texttt{models/} klasörü veri katmanını, \texttt{api/} klasörü controller katmanını, \texttt{schemas/} klasörü ise validasyon katmanını temsil etmektedir.
+
+\subsubsection{Flask Application Factory Pattern}
+
+Flask uygulaması, factory pattern kullanılarak başlatılmıştır \cite{grinberg2018flask}. Bu yaklaşım, farklı ortamlar (development, testing, production) için ayrı konfigürasyonlarla uygulama instance'larının oluşturulmasına olanak tanımaktadır.
+
+\textbf{app.py} temel yapısı:
+
+\begin{verbatim}
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import JWTManager
+from flask_cors import CORS
+
+db = SQLAlchemy()
+jwt = JWTManager()
+
+def create_app(config_name='development'):
+    app = Flask(__name__)
+    app.config.from_object(f'config.{config_name}Config')
+
+    db.init_app(app)
+    jwt.init_app(app)
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+    from api.auth import auth_bp
+    from api.user import user_bp
+    from api.prediction import prediction_bp
+
+    app.register_blueprint(auth_bp, url_prefix='/auth')
+    app.register_blueprint(user_bp, url_prefix='/api/user')
+    app.register_blueprint(prediction_bp, url_prefix='/api')
+
+    return app
+\end{verbatim}
+
+Factory pattern kullanımının başlıca avantajları:
+\begin{itemize}
+    \item Farklı ortamlar için ayrı instance'lar oluşturulabilir
+    \item Unit test'lerde test-specific konfigürasyonlar kullanılabilir
+    \item Circular import problemleri önlenir
+    \item Extension'lar lazy initialization ile başlatılır
+\end{itemize}
+
+\pagebreak{}
+
+\subsubsection{Veritabanı Modellerinin İmplementasyonu}
+
+SQLAlchemy ORM kullanılarak tanımlanan veritabanı modelleri, Python sınıfları olarak implement edilmiştir \cite{sqlalchemy2023}. Bu yaklaşım, SQL injection saldırılarını önlemekte ve veritabanı işlemlerini object-oriented bir şekilde gerçekleştirmeyi sağlamaktadır.
+
+\textbf{User Model İmplementasyonu:}
+
+\begin{verbatim}
+class User(db.Model):
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True,
+                      nullable=False, index=True)
+    password_hash = db.Column(db.String(256), nullable=False)
+    name = db.Column(db.String(100))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # One-to-One relationship
+    profile = db.relationship('UserProfile', backref='user',
+                              uselist=False,
+                              cascade='all, delete-orphan')
+
+    # One-to-Many relationship
+    predictions = db.relationship('PredictionHistory',
+                                  backref='user', lazy='dynamic',
+                                  cascade='all, delete-orphan')
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(
+            password, method='pbkdf2:sha256'
+        )
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+\end{verbatim}
+
+User modeli, \texttt{pbkdf2:sha256} algoritması ile şifre hashleme işlemini gerçekleştirmektedir. Bu algoritma, NIST (National Institute of Standards and Technology) tarafından önerilen güvenli bir şifreleme yöntemidir \cite{grassi2017bcrypt}.
+
+\textbf{UserProfile Model - Sağlık Metrikleri Hesaplaması:}
+
+\begin{verbatim}
+class UserProfile(db.Model):
+    __tablename__ = 'user_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer,
+                        db.ForeignKey('users.id'), nullable=False)
+    height = db.Column(db.Float)  # cm
+    weight = db.Column(db.Float)  # kg
+    age = db.Column(db.Integer)
+    gender = db.Column(db.String(10))
+    activity_level = db.Column(db.String(20))
+    goal_type = db.Column(db.String(20))
+    daily_calorie_goal = db.Column(db.Integer)
+
+    def calculate_bmi(self):
+        if self.height and self.weight:
+            return round(self.weight / ((self.height/100) ** 2), 1)
+        return None
+
+    def calculate_bmr(self):
+        """Harris-Benedict formülü"""
+        if not all([self.weight, self.height, self.age, self.gender]):
+            return None
+        if self.gender == 'male':
+            bmr = 88.362 + (13.397 * self.weight) +
+                  (4.799 * self.height) - (5.677 * self.age)
+        else:
+            bmr = 447.593 + (9.247 * self.weight) +
+                  (3.098 * self.height) - (4.330 * self.age)
+        return round(bmr, 1)
+
+    def calculate_tdee(self):
+        """Total Daily Energy Expenditure"""
+        bmr = self.calculate_bmr()
+        if not bmr:
+            return None
+        activity_multipliers = {
+            'sedentary': 1.2, 'lightly_active': 1.375,
+            'moderately_active': 1.55, 'very_active': 1.725,
+            'extra_active': 1.9
+        }
+        multiplier = activity_multipliers.get(
+            self.activity_level, 1.2
+        )
+        return round(bmr * multiplier, 1)
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{RESTful API Endpoint Tasarımı}
+
+Sistem, REST (Representational State Transfer) mimari prensiplerine uygun olarak tasarlanmıştır \cite{fielding2002rest}. Temel API endpoint'leri geliştirilmiş olup, ek özellikler için endpoint'ler planlanmaktadır. Tüm endpoint'ler standart HTTP metodlarını kullanmakta ve JSON formatında veri alışverişi yapmaktadır.
+
+\begin{table}[h]
+\centering
+\caption{Backend API Endpoint Listesi (Geliştirilen ve Planlanan)}
+\label{tab:api_endpoints}
+\small
+\begin{tabular}{|l|l|l|p{4cm}|c|}
+\hline
+\textbf{Endpoint} & \textbf{Method} & \textbf{Auth} & \textbf{Açıklama} & \textbf{Durum} \\ \hline
+\multicolumn{5}{|c|}{\textbf{Authentication API}} \\ \hline
+/auth/register & POST & - & Yeni kullanıcı kaydı & \checkmark \\ \hline
+/auth/login & POST & - & JWT token üretimi & \checkmark \\ \hline
+/auth/refresh & POST & Refresh & Access token yenileme & \checkmark \\ \hline
+/auth/me & GET & JWT & Kullanıcı bilgileri & \checkmark \\ \hline
+/auth/logout & POST & JWT & Token invalidation & \checkmark \\ \hline
+\multicolumn{5}{|c|}{\textbf{User Profile API}} \\ \hline
+/api/user/profile & GET & JWT & Profil getirme & \checkmark \\ \hline
+/api/user/profile & PUT & JWT & Profil güncelleme & Planlı \\ \hline
+/api/user/goals & PUT & JWT & Kalori hedefi ayarlama & Planlı \\ \hline
+\multicolumn{5}{|c|}{\textbf{Prediction API}} \\ \hline
+/api/predict & POST & JWT & Yemek tahmini & \checkmark \\ \hline
+/api/food-classes & GET & - & Yemek listesi (101 sınıf) & \checkmark \\ \hline
+\multicolumn{5}{|c|}{\textbf{History \& Analytics API (Planlı)}} \\ \hline
+/api/history & GET & JWT & Tahmin geçmişi listesi & Planlı \\ \hline
+/api/history/<id> & GET & JWT & Tahmin detayı & Planlı \\ \hline
+/api/history/<id> & DELETE & JWT & Tahmin silme & Planlı \\ \hline
+/api/daily-log & GET & JWT & Günlük özet & Planlı \\ \hline
+/api/stats & GET & JWT & İstatistikler & Planlı \\ \hline
+\end{tabular}
+\end{table}
+
+\textbf{Mevcut Durum:} Temel authentication, user profil ve prediction endpoint'leri aktif olarak çalışmaktadır (8 endpoint). History ve analytics özellikleri veritabanı modellerinde tanımlı olup, API endpoint implementasyonu gelecek geliştirme fazlarında tamamlanacaktır.
+
+\textbf{JWT Authentication Sistemi:}
+
+Kullanıcı kimlik doğrulaması, JSON Web Token (JWT) standardı kullanılarak gerçekleştirilmiştir \cite{jones2020jwt}. Sistem, iki tür token kullanmaktadır:
+
+\begin{itemize}
+    \item \textbf{Access Token:} Kısa ömürlü (15 dakika), API isteklerinde kullanılır
+    \item \textbf{Refresh Token:} Uzun ömürlü (30 gün), access token yenilemede kullanılır
+\end{itemize}
+
+\pagebreak{}
+
+\subsection{Yapay Zeka Modellerinin Entegrasyonu}
+
+\subsubsection{Model Yönetim Sistemi - Singleton Pattern}
+
+Derin öğrenme modellerinin yönetimi için Singleton design pattern kullanılarak \texttt{ModelManager} sınıfı geliştirilmiştir. Bu yaklaşım, uygulama boyunca tek bir model yöneticisi instance'ının oluşturulmasını garantileyerek bellek verimliliği sağlamaktadır.
+
+\textbf{ai\_engine.py - ModelManager Sınıfı:}
+
+\begin{verbatim}
+class ModelManager:
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if not ModelManager._initialized:
+            self.device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            )
+            # Lazy loading - modeller ilk kullanımda yüklenir
+            self.food_model = None
+            self.u2net_model = None
+            self.midas_model = None
+            self.calories_df = None
+            ModelManager._initialized = True
+\end{verbatim}
+
+Singleton pattern'in sağladığı avantajlar:
+\begin{itemize}
+    \item Modellerin bellekte tek bir kopyasının tutulması
+    \item Thread-safe model erişimi
+    \item Tutarlı model versiyonu kullanımı
+    \item Bellek tüketiminin minimize edilmesi
+\end{itemize}
+
+\textbf{Lazy Loading Mekanizması:}
+
+Modeller, ilk talep anında yüklenmektedir. Bu yaklaşım, uygulama başlangıç süresini önemli ölçüde azaltmaktadır.
+
+\begin{verbatim}
+def load_food_classification_model(self):
+    if self.food_model is not None:
+        return self.food_model  # Cache'den döndür
+
+    model_path = os.path.join(BASE_DIR, 'weights',
+                              'model_trained_101class.hdf5')
+    self.food_model = keras_load_model(model_path)
+    logger.info("ResNet50 food classification model loaded")
+    return self.food_model
+\end{verbatim}
+
+\subsubsection{Yemek Sınıflandırma Modeli - ResNet50}
+
+Food-101 veri seti üzerinde fine-tuning yapılmış ResNet50 modeli kullanılmıştır \cite{bossard2014food101}. Model, ImageNet ağırlıklarıyla pre-train edilmiş olup, transfer learning yaklaşımı ile yemek tanıma görevine adapte edilmiştir \cite{pan2010transfer}.
+
+\textbf{Model Özellikleri:}
+\begin{itemize}
+    \item \textbf{Mimari:} ResNet50 (25.6M parametre) \cite{he2016resnet}
+    \item \textbf{Giriş boyutu:} 224×224×3 (RGB)
+    \item \textbf{Çıkış:} 101 yemek sınıfı (softmax aktivasyonu)
+    \item \textbf{Framework:} Keras/TensorFlow \cite{abadi2016tensorflow}
+    \item \textbf{Optimizasyon:} Adam optimizer, learning rate: 0.0001
+\end{itemize}
+
+\textbf{Görüntü Ön-işleme Pipeline:}
+
+\begin{verbatim}
+def preprocess_for_classification(self, img_path):
+    img = load_img(img_path, target_size=(224, 224))
+    img_array = img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = img_array / 255.0  # Normalization
+    return img_array
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{Segmentasyon Modeli - U2-Net}
+
+Yemek görüntülerinden arka plan ayrıştırması için U2-Net (U-Square Network) segmentasyon modeli kullanılmıştır \cite{qin2020u2net}. Model, nested U-structure mimarisi sayesinde multi-scale özellik çıkarımı gerçekleştirmektedir.
+
+\textbf{U2-Net Model Özellikleri:}
+\begin{itemize}
+    \item \textbf{Mimari:} U2NET-P (lightweight version, 4.7M parametre)
+    \item \textbf{Giriş boyutu:} 320×320×3
+    \item \textbf{Çıkış:} 320×320 binary mask (0-255 değer aralığı)
+    \item \textbf{Framework:} PyTorch \cite{paszke2019pytorch}
+    \item \textbf{Metrik:} Intersection over Union (IoU)
+\end{itemize}
+
+\textbf{Segmentasyon Pipeline İmplementasyonu:}
+
+\begin{verbatim}
+def generate_segmentation_mask(self, u2net_model, image_path):
+    # 1. Görüntü yükleme ve preprocessing
+    img = Image.open(image_path).convert('RGB')
+    img_resized = img.resize((320, 320))
+    img_tensor = transforms.ToTensor()(img_resized)
+    img_tensor = transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )(img_tensor)
+    img_tensor = img_tensor.unsqueeze(0).to(self.device)
+
+    # 2. Model inference
+    with torch.no_grad():
+        d1, _, _, _, _, _, _ = u2net_model(img_tensor)
+
+    # 3. Post-processing
+    pred = d1[:, 0, :, :]
+    pred_normalized = (pred - pred.min()) / (pred.max() - pred.min())
+    mask = pred_normalized.squeeze().cpu().numpy()
+    mask = (mask * 255).astype(np.uint8)
+
+    # 4. Orijinal boyuta resize
+    mask = cv2.resize(mask, (img.width, img.height))
+
+    # 5. Binary threshold
+    _, binary_mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+
+    return mask, binary_mask
+\end{verbatim}
+
+Segmentasyon maskesi, yemeğin piksel düzeyinde konturunu belirlemekte ve porsiyon ağırlığı tahmininde kullanılmaktadır.
+
+\subsubsection{Porsiyon Ağırlığı Tahmin Algoritması}
+
+Yemek ağırlığı tahmini için porsiyon bazlı bir algoritma geliştirilmiştir. Algoritma, segmentasyon maskesi alanı ve yemek sınıfına özgü porsiyon veritabanını kullanmaktadır.
+
+\textbf{Porsiyon Veritabanı Yapısı:}
+
+12 farklı yemek türü için 3 porsiyon boyutu (small, medium, large) tanımlanmıştır:
+
+\begin{verbatim}
+FOOD_PORTIONS = {
+    'pizza': {'small': 150, 'medium': 250, 'large': 400},
+    'hamburger': {'small': 120, 'medium': 180, 'large': 250},
+    'baklava': {'small': 80, 'medium': 140, 'large': 200},
+    'steak': {'small': 120, 'medium': 200, 'large': 300},
+    # ... toplam 12 yemek
+    'default': {'small': 80, 'medium': 130, 'large': 200}
+}
+\end{verbatim}
+
+\pagebreak{}
+
+\textbf{Ağırlık Hesaplama Algoritması:}
+
+\begin{verbatim}
+def calculate_weight(self, food_class, mask_area,
+                     mask_width, mask_height):
+    # 1. Porsiyon boyutu tahmini
+    portion_size = self.estimate_portion_size(
+        mask_area, mask_width, mask_height
+    )
+
+    # 2. Yemek için standart ağırlık
+    if food_class in self.portions:
+        base_weight = self.portions[food_class][portion_size]
+    else:
+        base_weight = self.portions['default'][portion_size]
+
+    # 3. Alan bazlı ince-ayar (±20%)
+    normalized_area = mask_area / (640 * 480)
+    area_factor = max(0.8, min(1.2, normalized_area * 3))
+    adjusted_weight = round(base_weight * area_factor)
+
+    return adjusted_weight, portion_size
+\end{verbatim}
+
+Algoritmanın çalışma prensibi:
+\begin{enumerate}
+    \item Maske alanı hesaplanır (beyaz piksel sayısı)
+    \item Alan normalize edilir (toplam görüntü alanına göre)
+    \item Porsiyon boyutu belirlenir (< 0.15: small, 0.15-0.35: medium, > 0.35: large)
+    \item Veritabanından baz ağırlık alınır
+    \item Alan faktörü ile ince-ayar yapılır
+\end{enumerate}
+
+\subsubsection{Kalori Hesaplama ve Besin Değerleri}
+
+Her yemek sınıfı için 100 gram başına kalori değerleri CSV formatında saklanmaktadır. Kalori hesaplaması:
+
+\begin{equation}
+\text{Toplam Kalori} = \frac{\text{Tahmini Ağırlık (g)}}{100} \times \text{Kalori}_{100g}
+\end{equation}
+
+\textbf{Kalori Hesaplama Fonksiyonu:}
+
+\begin{verbatim}
+def get_calorie_for_food(self, food_class, weight_grams):
+    row = self.calories_df[
+        self.calories_df['label'] == food_class
+    ]
+    if row.empty:
+        raise ValueError(f"Food class not found: {food_class}")
+
+    calories_per_100g = row['calories'].values[0]
+    total_calories = (weight_grams / 100) * calories_per_100g
+    return round(total_calories, 1)
+\end{verbatim}
+
+\subsubsection{Derinlik Tahmini - MiDaS (Gelecek Geliştirme)}
+
+MiDaS (Mixed Data Sampling) algoritması, monocular depth estimation için entegre edilmiştir \cite{ranftl2020midas}. Model, gelecekte hacim bazlı ağırlık tahmini için kullanılacaktır.
+
+\textbf{MiDaS Model Özellikleri:}
+\begin{itemize}
+    \item \textbf{Mimari:} DPT\_Large (Transformer-based)
+    \item \textbf{Çıktı:} Relative depth map
+    \item \textbf{Framework:} PyTorch Hub
+    \item \textbf{Kullanım:} Şu an pasif, gelecek versiyonlarda aktifleştirilecek
+\end{itemize}
+
+\pagebreak{}
+
+\subsection{Önerilen Mobil Uygulama Mimarisi}
+
+\subsubsection{Flutter Framework ve Dart}
+
+Mobil uygulama, Google tarafından geliştirilen Flutter framework'ü (versiyon 3.16+) ve Dart programlama dili kullanılarak tasarlanmıştır \cite{wu2018flutter}. Flutter, tek kod tabanı (single codebase) ile hem iOS hem de Android platformlarında native performans sunan cross-platform bir framework'tür \cite{biorn2018dartlang}.
+
+\textbf{Not:} Bu bölümde sunulan mobil uygulama mimarisi, sistemin tam entegrasyonu için tasarlanmış ve dokümante edilmiştir. Mimari tasarım tamamlanmış olup, implementasyon aşaması devam etmektedir.
+
+\textbf{Flutter Seçiminin Avantajları:}
+\begin{itemize}
+    \item Tek kod tabanı ile çoklu platform desteği (iOS, Android, Web)
+    \item Native performansa yakın hız (60 FPS rendering)
+    \item Hot reload özelliği ile hızlı geliştirme döngüsü
+    \item Zengin widget kütüphanesi ve Material Design 3.0 desteği \cite{google2023material}
+    \item Güçlü state management çözümleri (Provider, Riverpod, BLoC)
+\end{itemize}
+
+\subsubsection{Uygulama Mimarisi}
+
+Mobil uygulama, katmanlı mimari (layered architecture) prensibi ile organize edilmiştir:
+
+\begin{verbatim}
+lib/
+├── main.dart                    # Uygulama başlangıcı
+├── screens/                     # Ekran widget'ları
+│   ├── auth/
+│   │   ├── login_screen.dart
+│   │   └── register_screen.dart
+│   ├── home/
+│   │   └── home_screen.dart
+│   ├── camera/
+│   │   └── camera_screen.dart
+│   ├── prediction/
+│   │   └── prediction_result_screen.dart
+│   ├── history/
+│   │   ├── history_screen.dart
+│   │   └── history_detail_screen.dart
+│   ├── stats/
+│   │   └── statistics_screen.dart
+│   └── profile/
+│       ├── profile_screen.dart
+│       └── edit_profile_screen.dart
+├── widgets/                     # Yeniden kullanılabilir bileşenler
+│   ├── custom_button.dart
+│   ├── custom_text_field.dart
+│   └── loading_indicator.dart
+├── models/                      # Veri modelleri
+│   ├── user.dart
+│   ├── prediction.dart
+│   └── daily_log.dart
+├── providers/                   # State management (Provider)
+│   ├── auth_provider.dart
+│   ├── user_provider.dart
+│   ├── prediction_provider.dart
+│   └── history_provider.dart
+├── services/                    # API servisleri
+│   ├── api_service.dart
+│   ├── auth_service.dart
+│   ├── prediction_service.dart
+│   └── storage_service.dart
+├── utils/                       # Yardımcı fonksiyonlar
+│   ├── constants.dart
+│   ├── validators.dart
+│   └── helpers.dart
+└── config/
+    └── theme.dart              # Tema ve renk şeması
+\end{verbatim}
+
+Bu yapı, Separation of Concerns prensibi ile her katmanın kendi sorumluluğuna odaklanmasını sağlamaktadır.
+
+\pagebreak{}
+
+\subsubsection{Ana Ekranlar ve Kullanıcı Akışı}
+
+GastronomGöz mobil uygulaması, toplam 10 ana ekrandan oluşmaktadır:
+
+\textbf{1. Authentication Ekranları:}
+\begin{itemize}
+    \item \textbf{Login Screen:} Email ve şifre ile giriş
+    \item \textbf{Register Screen:} Yeni kullanıcı kaydı
+\end{itemize}
+
+\textbf{2. Ana Navigasyon Ekranları (Bottom Navigation Bar):}
+\begin{itemize}
+    \item \textbf{Home Screen:} Günlük özet, progress bar, son tahminler
+    \item \textbf{Camera Screen:} Fotoğraf çekme ve galeri seçimi
+    \item \textbf{History Screen:} Geçmiş tahminler listesi
+    \item \textbf{Statistics Screen:} Grafikler ve analitik
+    \item \textbf{Profile Screen:} Kullanıcı profili ve ayarlar
+\end{itemize}
+
+\textbf{3. Detay Ekranları:}
+\begin{itemize}
+    \item \textbf{Prediction Result Screen:} Tahmin sonuçları görüntüleme
+    \item \textbf{History Detail Screen:} Tahmin detayları
+    \item \textbf{Edit Profile Screen:} Profil düzenleme
+\end{itemize}
+
+\textbf{Kullanıcı Akış Diyagramı:}
+
+\begin{verbatim}
+[Splash Screen]
+    ↓
+[Token kontrolü] → Var ise → [Home Screen]
+    ↓ Yok ise
+[Login Screen] → [Register Screen] (opsiyonel)
+    ↓
+[Home Screen] ← [Bottom Navigation] → [Camera/History/Stats/Profile]
+    ↓
+[Camera Screen] → Fotoğraf çek/seç
+    ↓
+[Upload & Processing] → Loading indicator
+    ↓
+[Prediction Result Screen] → Kaydet
+    ↓
+[History Screen] ← Güncellendi
+\end{verbatim}
+
+\subsubsection{State Management - Provider Pattern}
+
+Uygulama state yönetimi için Provider pattern kullanılmıştır. Provider, Flutter ekosisteminde önerilen ve yaygın olarak kullanılan bir state management çözümüdür.
+
+\textbf{AuthProvider Örneği:}
+
+\begin{verbatim}
+class AuthProvider extends ChangeNotifier {
+  AuthState _state = AuthState.initial;
+  User? _currentUser;
+  String? _accessToken;
+
+  Future<void> login(String email, String password) async {
+    _state = AuthState.loading;
+    notifyListeners();
+
+    try {
+      final response = await _authService.login(email, password);
+      _currentUser = response.user;
+      _accessToken = response.accessToken;
+
+      await _storageService.saveToken(response.accessToken);
+
+      _state = AuthState.authenticated;
+    } catch (e) {
+      _state = AuthState.error;
+    }
+    notifyListeners();
+  }
+
+  void logout() {
+    _currentUser = null;
+    _accessToken = null;
+    _storageService.clearToken();
+    _state = AuthState.unauthenticated;
+    notifyListeners();
+  }
+}
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{API Entegrasyonu}
+
+Backend API ile iletişim için Dio HTTP client kütüphanesi kullanılmıştır. Dio, interceptor desteği, timeout yönetimi ve error handling özellikleri sunmaktadır.
+
+\textbf{API Service İmplementasyonu:}
+
+\begin{verbatim}
+class ApiService {
+  final Dio _dio;
+  static const String baseUrl = 'https://api.gastronomgoz.com';
+
+  ApiService() : _dio = Dio(BaseOptions(
+    baseUrl: baseUrl,
+    connectTimeout: Duration(seconds: 10),
+    receiveTimeout: Duration(seconds: 30),
+    headers: {'Content-Type': 'application/json'},
+  )) {
+    _dio.interceptors.add(AuthInterceptor());
+    _dio.interceptors.add(LoggingInterceptor());
+  }
+
+  Future<PredictionResult> predict({
+    required File image,
+    String? mealType,
+    String? note,
+  }) async {
+    final formData = FormData.fromMap({
+      'image': await MultipartFile.fromFile(
+        image.path,
+        filename: path.basename(image.path),
+      ),
+      if (mealType != null) 'meal_type': mealType,
+      if (note != null) 'note': note,
+    });
+
+    final response = await _dio.post(
+      '/api/predict',
+      data: formData,
+    );
+
+    return PredictionResult.fromJson(response.data['data']);
+  }
+}
+\end{verbatim}
+
+\textbf{Auth Interceptor - Token Yönetimi:}
+
+\begin{verbatim}
+class AuthInterceptor extends Interceptor {
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    final token = await StorageService.getAccessToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+
+  @override
+  void onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    if (err.response?.statusCode == 401) {
+      // Token expired, refresh token
+      final refreshed = await _refreshToken();
+      if (refreshed) {
+        handler.resolve(await _retry(err.requestOptions));
+        return;
+      }
+    }
+    handler.next(err);
+  }
+}
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{Kullanıcı Arayüzü Tasarımı}
+
+Arayüz tasarımında Google Material Design 3.0 prensipleri uygulanmıştır \cite{google2023material}. Kullanılabilirlik (usability) için Nielsen'in 10 heuristiği \cite{nielsen1994usability} ve Norman'ın tasarım prensipleri \cite{norman2013design} dikkate alınmıştır.
+
+\textbf{Renk Paleti:}
+\begin{itemize}
+    \item \textbf{Birincil renk:} Turuncu (\#FF6B35) - yemek ve enerji temalarını yansıtır
+    \item \textbf{İkincil renk:} Yeşil (\#4CAF50) - sağlık ve doğallık hissi verir
+    \item \textbf{Arkaplan:} Beyaz (\#FFFFFF) ve açık gri (\#F5F5F5)
+    \item \textbf{Hata rengi:} Kırmızı (\#F44336)
+    \item \textbf{Başarı rengi:} Yeşil (\#4CAF50)
+\end{itemize}
+
+\textbf{Tipografi:}
+\begin{itemize}
+    \item \textbf{Ana font:} Roboto (Android) / San Francisco (iOS)
+    \item \textbf{Başlık boyutu:} 24sp (bold)
+    \item \textbf{Alt başlık:} 18sp (medium)
+    \item \textbf{Gövde metni:} 14sp (regular)
+    \item \textbf{Küçük metin:} 12sp (light)
+\end{itemize}
+
+\subsubsection{Kamera Entegrasyonu}
+
+Yemek fotoğrafı çekimi için Flutter'ın \texttt{camera} paketi kullanılmıştır. Paket, hem yerleşik kamera hem de galeri erişimi sağlamaktadır.
+
+\textbf{Kamera Controller:}
+
+\begin{verbatim}
+class CameraController {
+  CameraController? _controller;
+  List<CameraDescription>? _cameras;
+
+  Future<void> initialize() async {
+    _cameras = await availableCameras();
+    _controller = CameraController(
+      _cameras![0],  // Arka kamera
+      ResolutionPreset.high,
+      enableAudio: false,
+    );
+    await _controller!.initialize();
+  }
+
+  Future<XFile> takePicture() async {
+    if (!_controller!.value.isInitialized) {
+      throw Exception('Kamera hazır değil');
+    }
+    return await _controller!.takePicture();
+  }
+}
+\end{verbatim}
+
+\subsubsection{Veri Görselleştirme}
+
+İstatistik ekranında grafik gösterimi için \texttt{fl\_chart} paketi kullanılmıştır. Paket, line chart, bar chart ve pie chart gibi çeşitli grafik türlerini desteklemektedir.
+
+\textbf{Grafik Türleri:}
+\begin{itemize}
+    \item \textbf{Line Chart:} 7 günlük kalori trend grafiği
+    \item \textbf{Bar Chart:} Haftalık öğün dağılımı
+    \item \textbf{Pie Chart:} Öğün türlerine göre kalori dağılımı
+\end{itemize}
+
+\pagebreak{}
+
+\subsection{Önerilen Deployment ve Dağıtım Stratejisi}
+
+\subsubsection{Backend Deployment Stratejisi}
+
+Backend uygulama, cloud platform üzerinde production deployment için containerization yaklaşımı önerilmektedir.
+
+\textbf{Not:} Bu bölümde sunulan deployment stratejisi, sistemin production ortamına geçişi için hazırlanmıştır. Mevcut durumda sistem development ortamında (SQLite, Flask development server) çalışmaktadır.
+
+\textbf{Docker Container Yapılandırması:}
+
+\begin{verbatim}
+# Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 5000
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000",
+     "--workers", "4", "--timeout", "120", "app:app"]
+\end{verbatim}
+
+\textbf{Production Konfigürasyonu:}
+\begin{itemize}
+    \item \textbf{Web Server:} Gunicorn (4 worker process)
+    \item \textbf{Reverse Proxy:} Nginx
+    \item \textbf{Database:} PostgreSQL (managed service)
+    \item \textbf{File Storage:} AWS S3 / Google Cloud Storage
+    \item \textbf{SSL/TLS:} Let's Encrypt sertifikası
+\end{itemize}
+
+\subsubsection{Mobil Uygulama Dağıtımı}
+
+\textbf{Android Platform:}
+\begin{itemize}
+    \item APK ve App Bundle (.aab) formatında build
+    \item Google Play Console üzerinden dağıtım
+    \item Minimum SDK: Android 5.0 (API Level 21)
+    \item Target SDK: Android 13 (API Level 33)
+\end{itemize}
+
+\textbf{iOS Platform:}
+\begin{itemize}
+    \item App Store Connect üzerinden dağıtım
+    \item Minimum iOS versiyonu: iOS 12.0
+    \item Xcode build tools ve provisioning profile
+\end{itemize}
+
+\subsubsection{Continuous Integration / Continuous Deployment (CI/CD)}
+
+Otomatik build ve deployment için GitHub Actions kullanılmıştır:
+
+\begin{verbatim}
+# .github/workflows/deploy.yml
+name: Deploy Backend
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build Docker image
+        run: docker build -t gastronomgoz-backend .
+      - name: Push to registry
+        run: docker push gastronomgoz-backend
+      - name: Deploy to production
+        run: ssh deploy@server 'docker-compose up -d'
+\end{verbatim}
+
+\pagebreak{}

@@ -1,0 +1,246 @@
+\section{METODOLOJİ VE KULLANILAN TEKNOLOJİLER}
+
+Bu bölümde, GastronomGöz sisteminin geliştirilmesinde kullanılan yöntemler, yazılım teknolojileri, donanım altyapısı, derin öğrenme mimarileri ve metodolojiler detaylı olarak açıklanmaktadır.
+
+\subsection{Sistem Mimarisi}
+
+GastronomGöz, üç katmanlı (three-tier) bir mimari yapısında tasarlanmıştır \cite{fielding2002rest}. Şekil \ref{fig:system_architecture} sistemin genel mimarisini göstermektedir.
+
+\begin{itemize}
+    \item \textbf{Sunum Katmanı (Presentation Layer):} Flutter framework'ü ile geliştirilmiş cross-platform mobil uygulama (iOS ve Android)
+    \item \textbf{İş Mantığı Katmanı (Business Logic Layer):} Python Flask framework'ü ile geliştirilmiş RESTful API servisleri
+    \item \textbf{Veri Katmanı (Data Layer):} İlişkisel veritabanı (SQLite/PostgreSQL) ve yapay zeka model dosyaları
+\end{itemize}
+
+Bu mimari sayesinde katmanlar arası bağımlılık minimize edilmiş, sistemin bakım ve genişletilebilirliği artırılmıştır.
+
+\subsection{Derin Öğrenme Modelleri ve Transfer Learning}
+
+\subsubsection{Yemek Sınıflandırma: ResNet50 Mimarisi}
+
+Yemek görüntülerinin sınıflandırılması için ResNet50 (Residual Network - 50 katman) mimarisi kullanılmıştır \cite{he2016resnet}. ResNet, artık bağlantılar (residual connections) sayesinde çok derin ağlarda gradyan kaybolması (vanishing gradient) problemini çözmektedir.
+
+Model, Food-101 veri seti üzerinde ön-eğitilmiş ağırlıklar kullanılarak transfer learning yöntemiyle adapte edilmiştir \cite{pan2010transfer}. Transfer learning, kaynak alan bilgisinin hedef alana aktarılmasını sağlayarak eğitim süresini kısaltır ve az veri ile yüksek performans elde edilmesine olanak tanır \cite{yosinski2014transfer}.
+
+\textbf{Model Yapılandırması:}
+\begin{itemize}
+    \item Giriş katmanı: 224×224×3 (RGB görüntü)
+    \item Temel ağ: ResNet50 (Food-101 ağırlıkları ile başlatılmış)
+    \item Global Average Pooling katmanı
+    \item Tam bağlı katman (Dense): 256 nöron, ReLU aktivasyonu
+    \item Dropout katmanı: 0.5 oranında (overfitting önleme)
+    \item Çıkış katmanı: N sınıf (softmax aktivasyonu)
+\end{itemize}
+
+\subsubsection{Görüntü Segmentasyonu: U2-Net Modeli}
+
+Yemek görüntülerinden arkaplanın ayrıştırılması ve yemek nesnesinin kesin sınırlarının belirlenmesi için U2-Net (U-Square Network) segmentasyon modeli kullanılmıştır \cite{qin2020u2net}. U2-Net, geleneksel U-Net mimarisinin \cite{ronneberger2015unet} geliştirilmiş versiyonu olup, iç içe U-yapıları (nested U-structures) sayesinde multi-scale öznitelik çıkarımı gerçekleştirir.
+
+Model çıktısı, piksel düzeyinde bir maske (mask) haritasıdır ve her piksel için [0,1] aralığında bir değer üretir. Eşik değeri (threshold) 0.5 olarak belirlenmiş, bu değerin üzerindeki pikseller yemek nesnesi, altındakiler arkaplan olarak sınıflandırılmıştır.
+
+\subsubsection{Derinlik Tahmini: MiDaS Algoritması}
+
+Tek görüntüden derinlik haritası elde etmek için MiDaS (Mixed Data Sampling) algoritması kullanılmıştır \cite{ranftl2020midas}. MiDaS, farklı veri setlerinden öğrenilen bilgileri birleştirerek (zero-shot cross-dataset transfer) robust derinlik tahmini yapmaktadır.
+
+Derinlik bilgisi, yemek porsiyon hacminin üç boyutlu olarak hesaplanmasında kullanılmaktadır. Algoritma, görüntünün her pikseli için göreceli derinlik değeri (relative depth) üretir ve bu değerler normalize edilerek [0, 255] aralığına getirilir.
+
+\subsection{Backend Geliştirme}
+
+\subsubsection{Flask Web Framework}
+
+Backend API servisleri, Python Flask framework'ü kullanılarak geliştirilmiştir \cite{grinberg2018flask}. Flask, micro-framework yapısı sayesinde hafif ve esnek bir geliştirme ortamı sunmaktadır. Versiyon 3.1.0 kullanılmıştır.
+
+\textbf{Kullanılan Flask Extension'ları:}
+\begin{itemize}
+    \item \textbf{Flask-SQLAlchemy}: ORM (Object-Relational Mapping) desteği \cite{sqlalchemy2023}
+    \item \textbf{Flask-JWT-Extended}: JWT tabanlı kimlik doğrulama
+    \item \textbf{Flask-Marshmallow}: Veri serileştirme ve validasyon
+    \item \textbf{Flask-CORS}: Cross-Origin Resource Sharing desteği
+    \item \textbf{Flask-Bcrypt}: Şifre hashleme (bcrypt algoritması) \cite{grassi2017bcrypt}
+\end{itemize}
+
+\subsubsection{RESTful API Tasarımı}
+
+Sistem, REST (Representational State Transfer) mimari prensiplerine uygun olarak tasarlanmıştır \cite{fielding2002rest}. Tüm API endpoint'leri standart HTTP metodlarını (GET, POST, PUT, DELETE) kullanmakta ve JSON formatında veri alışverişi yapmaktadır.
+
+\textbf{API Endpoint Kategorileri:}
+\begin{enumerate}
+    \item \textbf{Authentication API}: Kullanıcı kaydı, giriş, token yenileme
+    \item \textbf{User Profile API}: Profil bilgileri, hedef kalori ayarları
+    \item \textbf{Prediction API}: Yemek görüntüsü analizi ve kalori hesaplama
+    \item \textbf{History API}: Geçmiş tahmin kayıtları ve günlük loglar
+    \item \textbf{Analytics API}: İstatistiksel raporlama
+\end{enumerate}
+
+\subsubsection{Kimlik Doğrulama ve Güvenlik}
+
+Kullanıcı kimlik doğrulaması JSON Web Token (JWT) standardı kullanılarak gerçekleştirilmiştir \cite{jones2020jwt}. Sistem, iki tür token kullanmaktadır:
+
+\begin{itemize}
+    \item \textbf{Access Token}: Kısa ömürlü (15 dakika), API isteklerinde kullanılır
+    \item \textbf{Refresh Token}: Uzun ömürlü (30 gün), access token yenilemede kullanılır
+\end{itemize}
+
+Kullanıcı şifreleri, Bcrypt algoritması ile hashlenmiş ve veritabanında düz metin olarak saklanmamıştır. Bcrypt, NIST (National Institute of Standards and Technology) tarafından önerilen bir şifreleme yöntemidir \cite{grassi2017bcrypt}.
+
+\subsection{Mobil Uygulama Geliştirme}
+
+\subsubsection{Flutter ve Dart}
+
+Mobil uygulama, Google tarafından geliştirilen Flutter framework'ü (versiyon 3.16+) ve Dart programlama dili kullanılarak geliştirilmiştir \cite{wu2018flutter}. Flutter, tek kod tabanı (single codebase) ile hem iOS hem de Android platformlarında native performans sunan cross-platform bir framework'tür \cite{biorn2018dartlang}.
+
+\textbf{Kullanılan Flutter Paketleri:}
+\begin{itemize}
+    \item \textbf{http}: RESTful API iletişimi
+    \item \textbf{provider}: State management (durum yönetimi)
+    \item \textbf{shared\_preferences}: Yerel veri saklama
+    \item \textbf{image\_picker}: Kamera ve galeri erişimi
+    \item \textbf{fl\_chart}: Grafik ve veri görselleştirme
+    \item \textbf{intl}: Uluslararasılaştırma ve tarih formatlama
+\end{itemize}
+
+\subsubsection{Kullanıcı Arayüzü Tasarımı}
+
+Arayüz tasarımında Google Material Design 3.0 prensipleri uygulanmıştır \cite{google2023material}. Kullanılabilirlik (usability) için Nielsen'in 10 heuristiği \cite{nielsen1994usability} ve Norman'ın tasarım prensipleri \cite{norman2013design} dikkate alınmıştır.
+
+\textbf{Renk Paleti:}
+\begin{itemize}
+    \item Birincil renk: Turuncu (\#FF6B35) - yemek ve enerji temalarını yansıtır
+    \item İkincil renk: Yeşil (\#4CAF50) - sağlık ve doğallık hissi verir
+    \item Arkaplan: Beyaz (\#FFFFFF) ve açık gri (\#F5F5F5)
+\end{itemize}
+
+\subsection{Veritabanı Tasarımı}
+
+\subsubsection{İlişkisel Veritabanı Şeması}
+
+Sistem, SQLite (geliştirme ortamı) ve PostgreSQL (production ortamı) veritabanlarını desteklemektedir \cite{hipp2020sqlite}. Veritabanı şeması, normalizasyon kurallarına (3NF - Third Normal Form) uygun olarak tasarlanmıştır \cite{karwin2010sql}.
+
+\textbf{Ana Tablolar:}
+\begin{enumerate}
+    \item \textbf{users}: Kullanıcı bilgileri (id, email, password\_hash, created\_at)
+    \item \textbf{user\_profiles}: Fiziksel özellikler (user\_id, height, weight, age, gender, activity\_level)
+    \item \textbf{user\_goals}: Hedef kalori ve besin değerleri
+    \item \textbf{prediction\_history}: AI tahmin kayıtları (user\_id, image\_path, food\_class, weight\_g, calories)
+    \item \textbf{daily\_logs}: Günlük kalori takibi (user\_id, date, total\_calories, meal\_count)
+    \item \textbf{food\_database}: Besin değerleri veritabanı (name, calories\_per\_100g, protein, carbs, fats)
+\end{enumerate}
+
+\subsubsection{ORM ve Veri Erişim Katmanı}
+
+SQLAlchemy ORM kütüphanesi kullanılarak veritabanı işlemleri Python sınıfları üzerinden gerçekleştirilmiştir \cite{sqlalchemy2023}. Bu yaklaşım, SQL injection saldırılarını önlemekte ve kod bakımını kolaylaştırmaktadır.
+
+\subsection{Görüntü İşleme Pipeline'ı}
+
+Yemek görüntülerinin analizi, aşağıdaki adımlardan oluşan bir pipeline ile gerçekleştirilmektedir:
+
+\begin{enumerate}
+    \item \textbf{Görüntü Yükleme ve Validasyon}: JPEG/PNG formatı kontrolü, maksimum boyut kontrolü (10 MB)
+    \item \textbf{Ön-işleme (Preprocessing)}:
+    \begin{itemize}
+        \item Resize: 224×224 piksel (ResNet50 giriş boyutu)
+        \item Normalizasyon: Piksel değerlerinin [0,1] aralığına getirilmesi
+        \item OpenCV ve Pillow kütüphaneleri kullanılmıştır \cite{opencv2020, pillow2023}
+    \end{itemize}
+    \item \textbf{Yemek Sınıflandırma}: ResNet50 modeli ile sınıf tahmini
+    \item \textbf{Segmentasyon}: U2-Net ile yemek nesnesinin maskesi elde edilmesi
+    \item \textbf{Derinlik Tahmini}: MiDaS ile derinlik haritası çıkarımı
+    \item \textbf{Porsiyon Ağırlığı Hesaplama}: Maske alanı ve derinlik bilgisi kullanılarak
+    \item \textbf{Besin Değeri Hesaplama}: Veritabanından kalori değerleri çekilmesi
+\end{enumerate}
+
+\subsection{Ağırlık Tahmin Metodolojisi}
+
+Porsiyon ağırlığı tahmini, iki aşamalı bir yaklaşımla gerçekleştirilmektedir:
+
+\subsubsection{Referans Tabanlı Tahmin}
+
+Her yemek sınıfı için üç standart porsiyon boyutu tanımlanmıştır:
+\begin{itemize}
+    \item \textbf{Küçük (Small)}: Temel porsiyon
+    \item \textbf{Orta (Medium)}: Standart porsiyon
+    \item \textbf{Büyük (Large)}: Büyük porsiyon
+\end{itemize}
+
+Referans ağırlıklar, WHO besin veritabanı ve USDA (United States Department of Agriculture) standartlarına göre belirlenmiştir.
+
+\subsubsection{Alan Tabanlı İnce-Ayar}
+
+Segmentasyon maskesinden elde edilen piksel alanı kullanılarak ince-ayar yapılmaktadır:
+
+\begin{equation}
+A_{norm} = \frac{A_{mask}}{A_{total}}
+\end{equation}
+
+\begin{equation}
+W_{final} = W_{base} \times (1 + \alpha \cdot (A_{norm} - 0.5))
+\end{equation}
+
+Burada:
+\begin{itemize}
+    \item $A_{norm}$: Normalize edilmiş alan oranı
+    \item $A_{mask}$: Maskedeki yemek nesnesi piksel sayısı
+    \item $A_{total}$: Toplam görüntü piksel sayısı
+    \item $W_{base}$: Referans ağırlık
+    \item $\alpha$: İnce-ayar katsayısı (0.4 olarak belirlenmiştir)
+    \item $W_{final}$: Son tahmin edilen ağırlık
+\end{itemize}
+
+\subsection{Veri Artırımı (Data Augmentation)}
+
+Model eğitimi sırasında overfitting'i önlemek için veri artırımı teknikleri uygulanmıştır \cite{shorten2019survey}. Albumentations kütüphanesi kullanılarak \cite{buslaev2020albumentations} şu transformasyonlar uygulanmıştır:
+
+\begin{itemize}
+    \item Rastgele döndürme (±15 derece)
+    \item Yatay çevirme (horizontal flip)
+    \item Rastgele parlaklık ve kontrast ayarı (±20\%)
+    \item Rastgele renk doygunluğu değişimi
+    \item Rastgele kesme ve ölçekleme
+\end{itemize}
+
+\subsection{Model Eğitim Parametreleri}
+
+\textbf{ResNet50 Fine-Tuning:}
+\begin{itemize}
+    \item Optimizer: Adam (Adaptive Moment Estimation)
+    \item Learning rate: 0.0001 (initial), cosine annealing scheduler
+    \item Batch size: 32
+    \item Epochs: 200 (early stopping ile)
+    \item Loss function: Categorical cross-entropy
+    \item Metrics: Top-1 ve Top-5 accuracy
+\end{itemize}
+
+\textbf{Donanım ve Kütüphaneler:}
+\begin{itemize}
+    \item PyTorch 2.3.1 \cite{paszke2019pytorch}
+    \item TensorFlow 2.16.1 (alternatif implementasyon) \cite{abadi2016tensorflow}
+    \item NumPy 1.24.0 (matematiksel işlemler) \cite{harris2020numpy}
+    \item GPU: NVIDIA RTX 3060 (12 GB VRAM)
+    \item CPU: Intel i7-11700K
+    \item RAM: 32 GB DDR4
+\end{itemize}
+
+\subsection{Performans Optimizasyonu}
+
+Sistem performansını artırmak için aşağıdaki optimizasyon teknikleri uygulanmıştır:
+
+\begin{itemize}
+    \item \textbf{Model Lazy Loading}: AI modelleri ilk kullanımda yüklenir (Singleton pattern)
+    \item \textbf{Görüntü Önbelleği}: İşlenmiş görüntüler geçici olarak önbelleklenir
+    \item \textbf{API Response Caching}: Sık kullanılan endpoint'ler için cache mekanizması
+    \item \textbf{Asenkron İşleme}: Uzun süren AI işlemleri için background task queue
+    \item \textbf{Veritabanı İndeksleme}: Sık sorgulanan kolonlara index eklenmesi
+\end{itemize}
+
+\subsection{Test ve Doğrulama}
+
+Sistemin doğruluğu ve güvenilirliği için kapsamlı test süreçleri uygulanmıştır:
+
+\begin{itemize}
+    \item \textbf{Unit Test}: Bireysel fonksiyonların test edilmesi (pytest framework)
+    \item \textbf{Integration Test}: API endpoint'lerinin test edilmesi
+    \item \textbf{User Acceptance Test}: Beta kullanıcılar ile gerçek senaryolarda test
+    \item \textbf{Performance Test}: Yük testi ve response time analizi
+\end{itemize}
+
+\pagebreak{}
