@@ -13,9 +13,11 @@ login_schema = LoginSchema()
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
+    current_app.logger.info(f'Register request received: {request.json}')
     try:
         data = register_schema.load(request.json)
     except ValidationError as err:
+        current_app.logger.error(f'Validation error: {err.messages}')
         return jsonify({'success': False, 'error': 'Validation error', 'details': err.messages}), 400
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'success': False, 'error': 'Email already registered'}), 400

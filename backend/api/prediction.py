@@ -103,8 +103,9 @@ def predict():
             result['mask_height']
         )
 
-        # Calculate calories
-        calories = model_manager.get_calorie_for_food(result['food_class'], estimated_grams)
+        # Calculate full nutrition (calories, protein, carbs, fat)
+        nutrition = model_manager.get_nutrition_for_food(result['food_class'], estimated_grams)
+        calories = nutrition['calories']
 
         # Save to database
         prediction = PredictionHistory(
@@ -146,6 +147,9 @@ def predict():
                 'confidence': round(result['confidence'], 4),
                 'estimated_grams': estimated_grams,
                 'calories': calories,
+                'protein': nutrition['protein'],
+                'carbs': nutrition['carbs'],
+                'fat': nutrition['fat'],
                 'meal_type': meal_type,
                 'image_url': f'/static/uploads/{unique_filename}',
                 'mask_url': f'/static/uploads/{result["mask_filename"]}',
