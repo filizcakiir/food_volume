@@ -5,7 +5,7 @@ import re
 class RegisterSchema(Schema):
     email = fields.Email(required=True, error_messages={'required': 'Email required', 'invalid': 'Invalid email'})
     password = fields.Str(required=True, error_messages={'required': 'Password required'})
-    name = fields.Str(required=True, error_messages={'required': 'Name required'})
+    name = fields.Str(required=False, missing=None)
 
     @validates('password')
     def validate_password(self, value):
@@ -16,10 +16,11 @@ class RegisterSchema(Schema):
 
     @validates('name')
     def validate_name(self, value):
-        if len(value) < 2:
-            raise ValidationError('Name must be at least 2 characters')
-        if len(value) > 100:
-            raise ValidationError('Name must be at most 100 characters')
+        if value is not None and len(value) > 0:
+            if len(value) < 2:
+                raise ValidationError('Name must be at least 2 characters')
+            if len(value) > 100:
+                raise ValidationError('Name must be at most 100 characters')
 
 class LoginSchema(Schema):
     email = fields.Email(required=True, error_messages={'required': 'Email required', 'invalid': 'Invalid email'})

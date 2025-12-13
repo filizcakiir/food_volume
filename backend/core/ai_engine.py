@@ -170,6 +170,57 @@ class ModelManager:
             logger.error(f"Error calculating calories: {str(e)}")
             return weight_grams * 2.5  # Fallback
 
+    def get_nutrition_for_food(self, food_class, weight_grams):
+        """
+        Calculate full nutrition (calories, protein, carbs, fat) for given food and weight
+
+        Args:
+            food_class (str): Food class name
+            weight_grams (float): Weight in grams
+
+        Returns:
+            dict: Nutrition values (calories, protein, carbs, fat)
+        """
+        if self.calories_df is None:
+            self.load_calories_data()
+
+        try:
+            row = self.calories_df[self.calories_df['label'] == food_class]
+            if row.empty:
+                logger.warning(f"No nutrition data for {food_class}, using defaults")
+                # Defaults for unknown food
+                return {
+                    'calories': round(weight_grams * 2.5, 1),
+                    'protein': round(weight_grams * 0.15, 1),
+                    'carbs': round(weight_grams * 0.30, 1),
+                    'fat': round(weight_grams * 0.10, 1)
+                }
+
+            # Get values per 100g
+            calories_per_100g = row['calories'].values[0]
+            protein_per_100g = row['protein'].values[0]
+            carbs_per_100g = row['carbs'].values[0]
+            fat_per_100g = row['fat'].values[0]
+
+            # Calculate for actual weight
+            ratio = weight_grams / 100
+
+            return {
+                'calories': round(calories_per_100g * ratio, 1),
+                'protein': round(protein_per_100g * ratio, 1),
+                'carbs': round(carbs_per_100g * ratio, 1),
+                'fat': round(fat_per_100g * ratio, 1)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating nutrition: {str(e)}")
+            # Fallback
+            return {
+                'calories': round(weight_grams * 2.5, 1),
+                'protein': round(weight_grams * 0.15, 1),
+                'carbs': round(weight_grams * 0.30, 1),
+                'fat': round(weight_grams * 0.10, 1)
+            }
+
 
 # Global instance
 _model_manager = None
