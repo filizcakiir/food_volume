@@ -1942,6 +1942,379 @@ Hafta 10: [░░░░░░░░░░░░░░░░░░░░░░] 0
 
 ---
 
-**Son Güncelleme:** 13 Aralık 2025, Cuma - 18:35
+---
+
+## 🔍 TESPİT EDİLEN SORUNLAR VE ÇÖZÜMLERİ (20 Aralık 2025)
+
+### 🐛 Tespit Edilen Sorunlar
+
+#### Sorun 1: Geçmişe Kaydetme Çalışmıyor
+**Problem:**
+- Kullanıcı "Geçmişe Kaydet" butonuna basıyor
+- "Öğün geçmişe kaydedildi!" mesajı görünüyor
+- Ama History ekranı boş kalıyor
+
+**Kök Neden:**
+- Prediction model'inde `id` field'ı eksik
+- Backend prediction id'si gönderiyor ama mobil app saklayamıyor
+- Update/save işlemi prediction id'sine ihtiyaç duyuyor
+
+#### Sorun 2: İstatistikler Sahte Veri Gösteriyor
+**Problem:**
+- Stats ekranında öğün dağılımı gösteriliyor:
+  - Kahvaltı: 450 kcal (sabit)
+  - Öğle: 650 kcal (sabit)
+  - Akşam: 600 kcal (sabit)
+  - Atıştırmalık: 150 kcal (sabit)
+- Bu değerler hardcoded, backend'den gelmiyor
+
+**Kök Neden:**
+- Stats screen backend API'lerine bağlı değil
+- Dummy/test verileri gösteriyor
+- Backend'de `/api/stats/meal-distribution` hazır ama kullanılmıyor
+
+#### Sorun 3: Meal Type Belirleme Yöntemi Belirsiz
+**Problem:**
+- Bir yemeğin kahvaltı/öğle/akşam/atıştırmalık olduğu nasıl belirleniyor?
+- Kullanıcıdan her seferinde manuel seçim mi istenmeli?
+- Yoksa sistem otomatik mı belirlemeli?
+
+**Araştırma:**
+- Popüler uygulamalar (MyFitnessPal, Yazio, Lose It!) hybrid yaklaşım kullanıyor
+- Saat bazlı otomatik seçim + kullanıcı değiştirebilir
+- Örnek: 12:30'da çekilen fotoğraf otomatik "Öğle Yemeği" olarak seçili gelir
+
+---
+
+### ✅ PLANLANAN ÇÖZÜMLER
+
+#### Çözüm 1: Prediction Model'e ID Ekle
+**Dosya:** `lib/models/prediction.dart`
+
+**Değişiklik:**
+```dart
+class Prediction {
+  final int id;  // ← EKLENECEK
+  final String foodClass;
+  final double confidence;
+  // ... diğer fieldlar
+
+  Prediction({
+    required this.id,  // ← EKLENECEK
+    required this.foodClass,
+    // ...
+  });
+
+  factory Prediction.fromJson(Map<String, dynamic> json) {
+    return Prediction(
+      id: json['id'] ?? 0,  // ← EKLENECEK
+      foodClass: json['food_class'] ?? '',
+      // ...
+    );
+  }
+}
+```
+
+**Etki:** Save/update işlemleri düzgün çalışacak
+
+---
+
+#### Çözüm 2: Dil Çevirisi Ekle
+**Dosyalar:** `lib/l10n/app_tr.arb`, `lib/l10n/app_en.arb`
+
+**Eklenen Çeviriler:**
+```json
+// app_tr.arb
+"mealType": "Öğün Türü"
+
+// app_en.arb
+"mealType": "Meal Type"
+```
+
+**Not:** `breakfast`, `lunch`, `dinner`, `snack` çevirileri zaten mevcut (satır 89-92)
+
+---
+
+#### Çözüm 3: Otomatik Meal Type Seçimi
+**Dosya:** `lib/screens/prediction/prediction_result_screen.dart`
+
+**Yaklaşım:** Hybrid (Otomatik + Değiştirilebilir)
+
+**Implementasyon:**
+```dart
+// Saat bazlı otomatik belirleme
+String _getDefaultMealType() {
+  final hour = DateTime.now().hour;
+  if (hour >= 6 && hour < 11) return 'breakfast';    // 06:00-10:59
+  if (hour >= 11 && hour < 16) return 'lunch';       // 11:00-15:59
+  if (hour >= 18 && hour < 23) return 'dinner';      // 18:00-22:59
+  return 'snack';                                     // Diğer saatler
+}
+
+@override
+void initState() {
+  super.initState();
+  _selectedMealType = _getDefaultMealType(); // Otomatik seç
+}
+```
+
+**Kullanıcı Deneyimi:**
+1. Fotoğraf çekiliyor (saat 12:45)
+2. AI analiz ediyor → "Hamburger, 300g"
+3. Result screen açılıyor
+4. **"Öğle Yemeği" otomatik seçili geliyor** (saat 12:45 olduğu için)
+5. Kullanıcı isterse değiştirebilir (Kahvaltı/Akşam/Atıştırmalık)
+6. "Geçmişe Kaydet" → Backend'e kaydedilir
+
+**Avantaj:**
+- %90 durumda kullanıcı hiçbir şey değiştirmez (hızlı)
+- Yanlışsa manuel düzeltme imkanı var (esnek)
+
+---
+
+#### Çözüm 4: Stats Screen Backend Entegrasyonu
+**Dosya:** `lib/screens/stats/stats_screen.dart`
+**Yeni Dosya:** `lib/services/stats_service.dart`
+
+**Backend API Endpoint'leri:**
+- `GET /api/daily-log` → Bugünkü log verisi
+- `GET /api/daily-log/week` → Bu haftanın verileri
+- `GET /api/daily-log/month` → Bu ayın verileri
+- `GET /api/stats/meal-distribution` → Kahvaltı/Öğle/Akşam/Atıştırmalık dağılımı
+
+**Stats Service:**
+```dart
+class StatsService {
+  Future<Map<String, dynamic>> getDailyLog() async {
+    // GET /api/daily-log
+  }
+
+  Future<Map<String, dynamic>> getWeeklyLog() async {
+    // GET /api/daily-log/week
+  }
+
+  Future<Map<String, dynamic>> getMealDistribution() async {
+    // GET /api/stats/meal-distribution
+  }
+}
+```
+
+**Değişiklik:**
+- Hardcoded değerler silinecek
+- `initState()`'de backend'den veri çekilecek
+- Loading state eklenecek
+- Real-time data gösterilecek
+
+---
+
+### 📋 YAPILACAKLAR LİSTESİ (Hafta 9 - 20 Aralık)
+
+| # | Görev | Dosya | Süre | Öncelik |
+|---|-------|-------|------|---------|
+| 1 | Prediction model'e id ekle | `prediction.dart` | 2 dk | 🔴 Kritik |
+| 2 | Dil çevirisi ekle | `app_tr.arb`, `app_en.arb` | 1 dk | 🔴 Kritik |
+| 3 | Otomatik meal type seçimi | `prediction_result_screen.dart` | 3 dk | 🟡 Yüksek |
+| 4 | Stats backend entegrasyonu | `stats_screen.dart`, `stats_service.dart` | 10 dk | 🟡 Yüksek |
+
+**Toplam Süre:** ~15 dakika
+**Beklenen Sonuç:** History ve Stats ekranları tam fonksiyonel
+
+---
+
+### 🎯 BEKLENTİLER
+
+**Çözüm Sonrası:**
+1. ✅ Kullanıcı yemek kaydedince History'de görünecek
+2. ✅ Meal type otomatik seçilecek (kullanıcı değiştirebilir)
+3. ✅ İstatistikler gerçek veriyi gösterecek
+4. ✅ Kahvaltı/Öğle/Akşam dağılımı backend'den gelecek
+
+**Test Senaryosu:**
+1. Sabah 08:30'da hamburger fotoğrafı çek
+2. Result screen'de "Kahvaltı" otomatik seçili olmalı
+3. "Öğle Yemeği" olarak değiştir
+4. "Geçmişe Kaydet" bas
+5. History ekranında görünmeli
+6. Stats ekranında "Öğle Yemeği" dağılımına eklenmiş olmalı
+
+---
+
+---
+
+## ✅ UYGULANAN ÇÖZÜMLER (20 Aralık 2025 - Gece)
+
+### 🔧 Çözüm 1: Stats ve History Ekranlarında Veri Görünmeme Sorunu
+
+**Problem:**
+- Predictions başarıyla kaydediliyordu (backend log'da ID 36, 37 görüldü)
+- Ancak Stats ve History ekranları boş veya sıfır değerler gösteriyordu
+- Backend `/api/daily-log` endpoint'i veri döndürüyordu ama frontend gösteremiyordu
+
+**Kök Neden:**
+1. **Type Mismatch:** Dart'ın strict type checking'i nedeniyle `int`/`double` çevirim hataları
+2. **Eksik Veriler:** Backend response'unda `protein`, `carbs`, `fat` verileri yoktu
+3. **Database Schema:** `prediction_history` tablosunda protein/carbs/fat kolonları yoktu
+
+**Uygulanan Düzeltmeler:**
+
+#### 1.1. Stats Screen Type Conversion Fixes
+**Dosya:** `lib/screens/stats/stats_screen.dart`
+
+```dart
+// ÖNCESİ (HATALI):
+final calories = _dailyData?['total_calories'] ?? 0;  // ❌ Type error
+
+// SONRASI (DÜZELTME):
+final calories = ((_dailyData?['total_calories'] ?? 0) as num).toInt();  // ✅
+final protein = ((_dailyData?['protein'] ?? 0) as num).toInt();
+final carbs = ((_dailyData?['carbs'] ?? 0) as num).toInt();
+final fat = ((_dailyData?['fat'] ?? 0) as num).toInt();
+
+// Meal distribution fix:
+final breakfastCals = ((_mealDistribution?['breakfast'] ?? 0) as num).toDouble();
+final maxCalories = totalCals > 0 ? totalCals : 2000.0;  // .0 eklendi
+```
+
+**Etki:** Type conversion hataları çözüldü, stats ekranı artık backend verisini gösterebiliyor.
+
+---
+
+#### 1.2. Backend Nutrition System Implementation
+**Dosya:** `backend/models/history.py`
+
+**Değişiklik:** PredictionHistory modeline protein, carbs, fat kolonları eklendi:
+```python
+class PredictionHistory(db.Model):
+    # ... mevcut fieldlar ...
+    calories = db.Column(db.Float, nullable=False)
+    protein = db.Column(db.Float, nullable=True)   # ← YENİ
+    carbs = db.Column(db.Float, nullable=True)     # ← YENİ
+    fat = db.Column(db.Float, nullable=True)       # ← YENİ
+    model_version = db.Column(db.String(50), default='v1.0')
+```
+
+**Dosya:** `backend/api/history.py`
+
+**Değişiklik:** `/api/daily-log` endpoint'i protein/carbs/fat hesaplaması eklendi:
+```python
+# Tüm predictions'dan protein/carbs/fat topla
+macros = db.session.query(
+    func.sum(PredictionHistory.calories).label('total_cals'),
+    func.sum(func.coalesce(PredictionHistory.protein, 0)).label('total_protein'),
+    func.sum(func.coalesce(PredictionHistory.carbs, 0)).label('total_carbs'),
+    func.sum(func.coalesce(PredictionHistory.fat, 0)).label('total_fat')
+).filter(
+    PredictionHistory.user_id == user_id,
+    PredictionHistory.created_at >= start_of_day,
+    PredictionHistory.created_at < end_of_day
+).first()
+
+log_dict['protein'] = round(macros.total_protein or 0, 1)
+log_dict['carbs'] = round(macros.total_carbs or 0, 1)
+log_dict['fat'] = round(macros.total_fat or 0, 1)
+```
+
+**Etki:** Backend artık günlük protein/carbs/fat toplamlarını hesaplayıp döndürüyor.
+
+---
+
+#### 1.3. Database Migration
+**Komut:**
+```bash
+python3 -m flask db migrate -m "Add protein carbs fat to prediction_history"
+python3 -m flask db upgrade
+```
+
+**Çıktı:**
+```
+INFO  [alembic.autogenerate.compare] Detected added column 'prediction_history.protein'
+INFO  [alembic.autogenerate.compare] Detected added column 'prediction_history.carbs'
+INFO  [alembic.autogenerate.compare] Detected added column 'prediction_history.fat'
+INFO  [alembic.runtime.migration] Running upgrade 5bb913ceafe8 -> a3df5f8ccfa7
+```
+
+**Etki:** Database şeması güncellendi, yeni kolonlar eklendi.
+
+---
+
+#### 1.4. Prediction Endpoint Update
+**Dosya:** `backend/api/prediction.py`
+
+**Değişiklik:** Prediction kaydederken protein/carbs/fat da kaydediliyor:
+```python
+# Calculate full nutrition (calories, protein, carbs, fat)
+nutrition = model_manager.get_nutrition_for_food(result['food_class'], estimated_grams)
+calories = nutrition['calories']
+
+# Save to database
+prediction = PredictionHistory(
+    user_id=current_user_id,
+    image_path=image_path,
+    mask_path=os.path.join(upload_folder, result['mask_filename']),
+    food_class=result['food_class'],
+    confidence=result['confidence'],
+    estimated_grams=estimated_grams,
+    calories=calories,
+    protein=nutrition['protein'],    # ← YENİ
+    carbs=nutrition['carbs'],        # ← YENİ
+    fat=nutrition['fat'],            # ← YENİ
+    meal_type=meal_type,
+    user_note=user_note,
+    processing_time=time.time() - start_time
+)
+```
+
+**Etki:** Yeni predictions artık full nutrition data ile kaydediliyor.
+
+---
+
+#### 1.5. Existing Data Backfill
+**Dosya:** `backend/backfill_nutrition.py` (yeni dosya)
+
+**Amaç:** Mevcut 36 prediction'ı nutrition verisi ile güncelle
+
+**Çalıştırma:**
+```bash
+python3 backfill_nutrition.py
+```
+
+**Çıktı:**
+```
+Found 36 predictions to update...
+Updated 10/36 predictions...
+Updated 20/36 predictions...
+Updated 30/36 predictions...
+Successfully updated 36 predictions with nutrition data!
+```
+
+**Etki:** Eski predictions'lar da artık protein/carbs/fat verilerine sahip.
+
+---
+
+### 📊 SONUÇ
+
+**Düzeltilen Dosyalar:**
+1. ✅ `mobile/food_calorie_app/lib/screens/stats/stats_screen.dart` - Type conversion fixes
+2. ✅ `backend/models/history.py` - Protein/carbs/fat kolonları eklendi
+3. ✅ `backend/api/history.py` - Daily log endpoint nutrition hesaplaması
+4. ✅ `backend/api/prediction.py` - Prediction kaydederken nutrition kaydetme
+5. ✅ `backend/backfill_nutrition.py` - Eski verileri güncelleme script'i
+6. ✅ Database migration applied: `a3df5f8ccfa7`
+
+**Test Durumu:**
+- ✅ Backend başarıyla çalışıyor (port 5001)
+- ✅ Database migration uygulandı
+- ✅ 36 mevcut prediction nutrition verisi ile güncellendi
+- ⏳ Flutter app test edilmeli (stats ve history ekranları)
+
+**Beklenen Davranış:**
+1. Stats ekranında günlük kalori/protein/carbs/fat görüntülenecek
+2. Haftalık grafik gerçek veriyi gösterecek
+3. Meal distribution (kahvaltı/öğle/akşam) backend'den gelecek
+4. Yeni çekilen fotoğraflar full nutrition data ile kaydedilecek
+
+---
+
+**Son Güncelleme:** 20 Aralık 2025, Cuma - Gece
 **Güncelleyen:** Filiz Çakır & Claude Code
-**Durum:** Backend entegrasyonu %100 tamamlandı, AI prediction başarıyla çalışıyor! 🎉🚀
+**Durum:** Stats ve History sorunları çözüldü ✅ - Test edilmeyi bekliyor 🚀

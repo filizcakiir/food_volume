@@ -340,8 +340,32 @@ def get_daily_log():
         daily_log.daily_goal = user.profile.daily_calorie_goal
         db.session.commit()
 
+    # Calculate total protein/carbs/fat from predictions
+    from sqlalchemy import func
+    from datetime import datetime, timedelta
+
+    start_of_day = datetime.combine(target_date, datetime.min.time())
+    end_of_day = start_of_day + timedelta(days=1)
+
+    macros = db.session.query(
+        func.sum(PredictionHistory.calories).label('total_cals'),
+        func.sum(func.coalesce(PredictionHistory.protein, 0)).label('total_protein'),
+        func.sum(func.coalesce(PredictionHistory.carbs, 0)).label('total_carbs'),
+        func.sum(func.coalesce(PredictionHistory.fat, 0)).label('total_fat')
+    ).filter(
+        PredictionHistory.user_id == user_id,
+        PredictionHistory.created_at >= start_of_day,
+        PredictionHistory.created_at < end_of_day
+    ).first()
+
+    # Add macros to response
+    log_dict = daily_log.to_dict()
+    log_dict['protein'] = round(macros.total_protein or 0, 1)
+    log_dict['carbs'] = round(macros.total_carbs or 0, 1)
+    log_dict['fat'] = round(macros.total_fat or 0, 1)
+
     return success_response(
-        daily_log.to_dict(),
+        log_dict,
         "Daily log retrieved successfully"
     )
 

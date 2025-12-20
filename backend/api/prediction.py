@@ -116,6 +116,9 @@ def predict():
             confidence=result['confidence'],
             estimated_grams=estimated_grams,
             calories=calories,
+            protein=nutrition['protein'],
+            carbs=nutrition['carbs'],
+            fat=nutrition['fat'],
             meal_type=meal_type,
             user_note=user_note,
             processing_time=time.time() - start_time
