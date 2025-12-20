@@ -219,6 +219,11 @@ def update_prediction(prediction_id):
                 target_date=prediction.created_at.date()
             )
 
+            # If this is the first time adding meal_type, increment totals
+            if old_meal_type is None and new_meal_type is not None:
+                daily_log.total_calories += prediction.calories
+                daily_log.total_meals += 1
+
             # Remove calories from old meal_type
             if old_meal_type == 'breakfast':
                 daily_log.breakfast_calories -= prediction.calories
