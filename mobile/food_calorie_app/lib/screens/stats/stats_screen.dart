@@ -44,12 +44,15 @@ class _StatsScreenState extends State<StatsScreen> {
         setState(() {
           if (results[0]['success'] == true) {
             _dailyData = results[0]['data'];
+            print('DEBUG: Daily data = $_dailyData');
           }
           if (results[1]['success'] == true) {
             _weeklyData = results[1]['data'];
+            print('DEBUG: Weekly data length = ${_weeklyData?.length}');
           }
           if (results[2]['success'] == true) {
             _mealDistribution = results[2]['data'];
+            print('DEBUG: Meal distribution = $_mealDistribution');
           }
           _isLoading = false;
         });
