@@ -12,9 +12,9 @@ Yemek görüntülerinin sınıflandırılması için ResNet50 mimarisi kullanıl
 
 Model yapılandırması 224×224×3 boyutunda RGB görüntü giriş katmanı, Food-101 ağırlıkları ile başlatılmış ResNet50 temel ağı, global average pooling katmanı, 256 nöronlu tam bağlı katman (ReLU aktivasyonu), aşırı uyumu önlemek için 0.5 oranında dropout katmanı ve N sınıf çıkışı için softmax aktivasyonlu çıkış katmanından oluşmaktadır. Sistemimizde 101 sınıf yemek tanıma için model eğitilmiştir.
 
-Görüntü bölütleme işlemi için U2-Net modeli kullanılmıştır \cite{qin2020u2net}. U2-Net, geleneksel U-Net mimarisinin \cite{ronneberger2015unet} geliştirilmiş versiyonu olup, iç içe U-yapıları sayesinde çok ölçekli öznitelik çıkarımı gerçekleştirir. Model çıktısı piksel düzeyinde bir maske haritasıdır ve her piksel için [0,1] aralığında bir değer üretir. Eşik değeri 0.5 olarak belirlenmiş, bu değerin üzerindeki pikseller yemek nesnesi, altındakiler arkaplan olarak sınıflandırılmıştır. U2-Net hafif versiyonu (U2NET-P) 4.7 milyon parametre ile mobil platformlar için uygun hale getirilmiştir.
+Görüntü bölütleme işlemi için U²-Net modeli kullanılmıştır \cite{qin2020u2net}. U²-Net, geleneksel U-Net mimarisinin \cite{ronneberger2015unet} geliştirilmiş versiyonu olup, iç içe U-yapıları sayesinde çok ölçekli öznitelik çıkarımı gerçekleştirir. Model çıktısı piksel düzeyinde bir maske haritasıdır ve her piksel için [0,1] aralığında bir değer üretir. Eşik değeri 0.5 olarak belirlenmiş, bu değerin üzerindeki pikseller yemek nesnesi, altındakiler arkaplan olarak sınıflandırılmıştır. U²-Net hafif versiyonu (U2NETP) 4.7 milyon parametre ile mobil platformlar için uygun hale getirilmiştir.
 
-Tek görüntüden derinlik haritası elde etmek için MiDaS algoritması kullanılmıştır \cite{ranftl2020midas}. MiDaS, farklı veri kümelerinden öğrenilen bilgileri birleştirerek sağlam derinlik tahmini yapmaktadır. Derinlik bilgisi yemek porsiyon hacminin üç boyutlu olarak hesaplanmasında kullanılmaktadır. Algoritma görüntünün her pikseli için göreceli derinlik değeri üretir ve bu değerler normalize edilerek [0, 255] aralığına getirilir.
+Tek görüntüden derinlik haritası elde etmek için MiDaS algoritması entegre edilmiştir \cite{ranftl2020midas}. MiDaS, farklı veri kümelerinden öğrenilen bilgileri birleştirerek sağlam derinlik tahmini yapmaktadır. Derinlik bilgisi, bölütleme maskesi ile birlikte yemek porsiyon ağırlığı tahmininde destekleyici veri olarak kullanılmaktadır. Algoritma görüntünün her pikseli için göreceli derinlik değeri üretir ve bu değerler normalize edilerek [0, 255] aralığına getirilir.
 
 \subsection{Backend Geliştirme}
 
@@ -36,15 +36,20 @@ Mobil uygulamada http paketi ile RESTful API iletişimi, provider paketi ile dur
 
 Arayüz tasarımında Google Material Design 3.0 prensipleri uygulanmıştır \cite{google2023material}. Kullanılabilirlik (usability) için Nielsen'in 10 heuristiği \cite{nielsen1994usability} ve Norman'ın tasarım prensipleri \cite{norman2013design} dikkate alınmıştır.
 
-Renk paleti olarak yemek ve enerji temalarını yansıtan turuncu (\#FF6B35) birincil renk, sağlık ve doğallık hissi veren yeşil (\#4CAF50) ikincil renk, beyaz (\#FFFFFF) ve açık gri (\#F5F5F5) arkaplan renkleri kullanılmıştır.
+Renk paleti olarak birincil renk lila, ikincil renk olarak beyaz ve açık gri arkaplan renkleri kullanılmıştır.
 
 \subsection{Veritabanı Tasarımı}
 
 \subsubsection{İlişkisel Veritabanı Şeması}
 
-Sistem, SQLite (geliştirme ortamı) ve PostgreSQL (production ortamı) veritabanlarını desteklemektedir \cite{hipp2020sqlite}. Veritabanı şeması, normalizasyon kurallarına (3NF - Third Normal Form) uygun olarak tasarlanmıştır \cite{karwin2010sql}.
+Sistem, geliştirme ortamında SQLite kullanır; production ortamında \texttt{DATABASE\_URL} tanımlıysa (ör. PostgreSQL) bu veritabanına bağlanır, tanımlı değilse SQLite’a geri düşer \cite{hipp2020sqlite}. Şema, 3NF prensiplerine uygun olacak şekilde tasarlanmıştır \cite{karwin2010sql}.
 
-Veritabanı şeması altı ana tablodan oluşmaktadır. Kullanıcı bilgileri users tablosunda (id, email, password\_hash, created\_at), fiziksel özellikler user\_profiles tablosunda (user\_id, height, weight, age, gender, activity\_level), hedef kalori ve besin değerleri user\_goals tablosunda saklanmaktadır. Yapay zeka tahmin kayıtları prediction\_history tablosunda (user\_id, image\_path, food\_class, weight\_g, calories), günlük kalori takibi daily\_logs tablosunda (user\_id, date, total\_calories, meal\_count), besin değerleri ise food\_database tablosunda (name, calories\_per\_100g, protein, carbs, fats) tutulmaktadır.
+\begin{itemize}
+  \item \textbf{users}: Kullanıcı kimlik ve temel hesap bilgileri (id, email, password\_hash, name, is\_active, created\_at, updated\_at).
+  \item \textbf{user\_profiles}: Kullanıcının fiziksel/dil/tercih bilgileri (user\_id – unique, height, weight, age, gender, activity\_level, daily\_calorie\_goal, goal\_type, unit\_system, language, notifications\_enabled, created\_at, updated\_at). TDEE/BMI hesapları buradaki alanlardan türetilir.
+  \item \textbf{prediction\_history}: Yapay zeka tahmin kayıtları (user\_id, image\_path, mask\_path, food\_class, confidence, estimated\_grams, calories, protein, carbs, fat, user\_note, meal\_type, is\_favorite, model\_version, processing\_time, depth\_info, segmentation\_info, created\_at, updated\_at). Görsel yollar ve besin makroları burada tutulur; weight alanı \texttt{estimated\_grams} olarak geçer.
+  \item \textbf{daily\_logs}: Günlük kalori ve öğün özetleri (user\_id, date, total\_calories, total\_meals, breakfast\_calories, lunch\_calories, dinner\_calories, snack\_calories, daily\_goal, goal\_achieved, created\_at, updated\_at). Öğün sayısı \texttt{total\_meals} ile izlenir.
+\end{itemize}
 
 \subsubsection{ORM ve Veri Erişim Katmanı}
 
@@ -64,14 +69,21 @@ Segmentasyon maskesinden elde edilen piksel alanı kullanılarak ince ayar yapı
 
 Model eğitimi sırasında aşırı uyumu önlemek için veri artırımı teknikleri uygulanmıştır \cite{shorten2019survey}. Albumentations kütüphanesi kullanılarak \cite{buslaev2020albumentations} rastgele döndürme (±15 derece), yatay çevirme, rastgele parlaklık ve kontrast ayarı (±20\%), rastgele renk doygunluğu değişimi ve rastgele kesme ile ölçekleme transformasyonları uygulanmıştır.
 
-ResNet50 ince ayarı için Adam optimizer, 0.0001 başlangıç öğrenme oranı (cosine annealing scheduler ile), 32 batch boyutu, 200 epoch (early stopping ile), categorical cross-entropy kayıp fonksiyonu ve Top-1 ile Top-5 başarım metrikleri kullanılmıştır. Sistem PyTorch 2.3.1 \cite{paszke2019pytorch}, TensorFlow 2.16.1 \cite{abadi2016tensorflow} ve NumPy 1.24.0 \cite{harris2020numpy} kütüphaneleri ile geliştirilmiştir. Donanım olarak NVIDIA RTX 3060 (12 GB VRAM), Intel i7-11700K CPU ve 32 GB DDR4 RAM kullanılmıştır.
+ResNet50 ince ayarı için Adam optimizer, 0.0001 başlangıç öğrenme oranı (cosine annealing scheduler ile), 32 batch boyutu, 200 epoch (early stopping ile), categorical cross-entropy kayıp fonksiyonu ve Top-1 ile Top-5 başarım metrikleri kullanılmıştır. Sistem PyTorch 2.3.1 \cite{paszke2019pytorch}, TensorFlow 2.16.1 \cite{abadi2016tensorflow} ve NumPy 1.24.0 \cite{harris2020numpy} kütüphaneleri ile geliştirilmiştir. Model eğitimi NVIDIA RTX 3060 (12 GB VRAM) GPU ile gerçekleştirilmiş, sistem geliştirmesi ve testleri MacBook Air M2 (8-core CPU, 10-core GPU, 16 GB Unified Memory) üzerinde yürütülmüştür.
 
 \subsection{Performans Optimizasyonu}
 
-Sistem performansını artırmak için çeşitli optimizasyon teknikleri uygulanmıştır. Yapay zeka modelleri ilk kullanımda yüklenerek tekil nesne örüntüsü ile bellekte tutulmaktadır. İşlenmiş görüntüler geçici olarak önbelleklenmekte ve sık kullanılan API uç noktaları için önbellek mekanizması kullanılmaktadır. Uzun süren yapay zeka işlemleri için arka plan görev kuyruğu kullanılarak asenkron işleme sağlanmış, ayrıca sık sorgulanan veritabanı kolonlarına indeks eklenerek sorgu performansı artırılmıştır.
+Sistemde, yapay zeka modelleri tekil (singleton) ve lazy-loading deseniyle ilk kullanımda yüklenip bellekte tutulur; böylece sonraki isteklerde yeniden yükleme yapılmaz. Model ve kalori verisi (calories\_per\_101class\_100g.csv) belleğe alınarak tekrar kullanılır. Bunun dışında:
+
+\begin{itemize}
+  \item API yanıtları veya işlenmiş görüntüler için bir önbellek katmanı (Redis vb.) uygulanmamıştır.
+  \item Uzun süren yapay zeka işlemleri için bir arka plan görev kuyruğu (Celery/RQ) bulunmamaktadır; istekler senkron çalışır.
+  \item Sık sorgulanan kolonlarda seçili indeksler vardır (örn. user\_id, created\_at, meal\_type), ancak ek bir genel indeksleme veya cache stratejisi tanımlı değildir.
+\end{itemize}
+
+Özetle mevcut optimizasyon, model ve veri setinin ilk yüklemeden sonra bellekte tutulmasıyla sınırlıdır; API önbellekleme ya da asenkron görev kuyruğu henüz devreye alınmamıştır.
 
 \subsection{Test ve Doğrulama}
 
 Sistemin doğruluğu ve güvenilirliği için kapsamlı test süreçleri uygulanmıştır. Bireysel fonksiyonların pytest framework ile birim testleri yapılmış, API uç noktalarının bütünleşme testleri gerçekleştirilmiştir. Beta kullanıcılar ile gerçek senaryolarda kullanıcı kabul testleri yapılmış, ayrıca yük testi ve yanıt süresi analizleri ile başarım testleri yürütülmüştür.
 
-\pagebreak{}

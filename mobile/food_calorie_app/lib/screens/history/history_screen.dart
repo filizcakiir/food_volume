@@ -183,7 +183,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       margin: const EdgeInsets.only(bottom: 12.0),
       child: InkWell(
         onTap: () {
-          // TODO: Navigate to detail
+          _openDetail(prediction);
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -243,5 +243,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _openDetail(Prediction prediction) async {
+    final result = await Navigator.of(context).pushNamed('/history/detail', arguments: {'id': prediction.id});
+    if (result == true) {
+      _loadHistory();
+    }
   }
 }

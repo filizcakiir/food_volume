@@ -26,7 +26,24 @@ class PredictionHistory(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self, include_images=True):
-        data = {'id': self.id, 'user_id': self.user_id, 'food_class': self.food_class, 'confidence': round(self.confidence, 4), 'estimated_grams': round(self.estimated_grams, 1), 'calories': round(self.calories, 1), 'meal_type': self.meal_type, 'user_note': self.user_note, 'is_favorite': self.is_favorite, 'created_at': self.created_at.isoformat() if self.created_at else None, 'model_version': self.model_version, 'processing_time': self.processing_time}
+        # Include macro nutrients so mobile client can display them
+        data = {
+            'id': self.id,
+            'user_id': self.user_id,
+            'food_class': self.food_class,
+            'confidence': round(self.confidence, 4),
+            'estimated_grams': round(self.estimated_grams, 1),
+            'calories': round(self.calories, 1),
+            'protein': round(self.protein, 1) if self.protein is not None else None,
+            'carbs': round(self.carbs, 1) if self.carbs is not None else None,
+            'fat': round(self.fat, 1) if self.fat is not None else None,
+            'meal_type': self.meal_type,
+            'user_note': self.user_note,
+            'is_favorite': self.is_favorite,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'model_version': self.model_version,
+            'processing_time': self.processing_time
+        }
         if include_images:
             data['image_url'] = f'/static/uploads/{self.image_path.split("/")[-1]}' if self.image_path else None
             data['mask_url'] = f'/static/uploads/{self.mask_path.split("/")[-1]}' if self.mask_path else None

@@ -15,16 +15,18 @@ class HistoryService {
       );
 
       if (response.statusCode == 200) {
-        final List<Prediction> predictions = (response.data['items'] as List)
+        final data = response.data['data'] ?? response.data;
+        final List<Prediction> predictions = (data['predictions'] as List)
             .map((item) => Prediction.fromJson(item))
             .toList();
 
+        final pagination = data['pagination'] ?? {};
         return {
           'success': true,
           'predictions': predictions,
-          'total': response.data['total'],
-          'page': response.data['page'],
-          'pages': response.data['pages'],
+          'total': pagination['total_items'] ?? predictions.length,
+          'page': pagination['page'] ?? page,
+          'pages': pagination['total_pages'] ?? 1,
         };
       } else {
         return {
@@ -53,9 +55,10 @@ class HistoryService {
       );
 
       if (response.statusCode == 200) {
+        final data = response.data['data'] ?? response.data;
         return {
           'success': true,
-          'stats': DailyStats.fromJson(response.data),
+          'stats': DailyStats.fromJson(data),
         };
       } else {
         return {
@@ -129,6 +132,21 @@ class HistoryService {
         'success': false,
         'message': 'An error occurred',
       };
+    }
+  }
+
+  Future<Map<String, dynamic>> getHistoryDetail(int id) async {
+    try {
+      final response = await _apiService.get('${AppConstants.historyEndpoint}/$id');
+      if (response.statusCode == 200) {
+        final data = response.data['data'] ?? response.data;
+        return {'success': true, 'prediction': Prediction.fromJson(data)};
+      }
+      return {'success': false, 'message': 'Failed to fetch history detail'};
+    } on DioException catch (e) {
+      return {'success': false, 'message': e.response?.data['message'] ?? 'Network error'};
+    } catch (e) {
+      return {'success': false, 'message': 'An unexpected error occurred'};
     }
   }
 }

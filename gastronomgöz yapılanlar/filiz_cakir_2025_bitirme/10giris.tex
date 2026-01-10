@@ -1,0 +1,27 @@
+\section{GİRİŞ}
+
+Obezite ve aşırı kilo, küresel ölçekte halk sağlığını tehdit eden en önemli sorunlardan biri haline gelmiştir. Dünya Sağlık Örgütü (WHO) 2023 verilerine göre dünya genelinde 2 milyardan fazla yetişkin aşırı kilolu ve 650 milyonu obez kategorisindedir \cite{who2023obesity}. Türkiye'de ise Sağlık Bakanlığı Türkiye Beslenme ve Sağlık Araştırması (TBSA) 2019 sonuçlarına göre yetişkin nüfusun \%64.4'ü aşırı kilolu, \%29.9'u obezdir \cite{tbsa2019}. Beslenme alışkanlıklarının izlenmesi ve günlük kalori alımının kontrolü, kilo yönetimi ve metabolik hastalıkların önlenmesinde temel stratejilerden biridir \cite{bateman2011process, cordeiro2015barriers}. Ancak geleneksel el ile kalori takibi yöntemleri, kullanıcılar için zaman alıcı ve yorucu süreçlerdir. Hall et al. \cite{hall2018obesity} tarafından yapılan çalışmada mobil kalori takibi uygulamalarının kullanıcı devam oranının ilk ay sonunda \%25'in altına düştüğü rapor edilmiştir. Bu düşük devam oranının temel nedenleri arasında her öğünde yemeklerin el ile aranması, porsiyon ağırlıklarının tahmin edilmesindeki zorluk ve veri girişinin işlemsel yükü yer almaktadır.
+
+Mevcut kalori takibi uygulamaları (MyFitnessPal, Noom, Calorie Mama, Foodvisor) kullanıcıların yemekleri el ile aramasını ve seçmesini gerektirmektedir. Chen et al. \cite{chen2019food} tarafından yapılan kullanılabilirlik çalışmasında ortalama bir öğün kaydının 5-7 dakika sürdüğü ve bu sürenin kullanıcı motivasyonunu olumsuz etkilediği belirlenmiştir. Amoutzo et al. \cite{amoutzo2018portion} tarafından gerçekleştirilen çalışmada kullanıcıların porsiyon ağırlıklarını tahmin ederken ortalama \%30-40 oranında hata yaptığı gösterilmiştir. Cordeiro et al. \cite{cordeiro2015barriers} tarafından 200 katılımcı ile yapılan uzunlamasına çalışmada kalori takibi uygulamalarının 3 ay içinde \%74 oranında terk edildiği rapor edilmiştir. Son yıllarda bilgisayarlı görü ve derin öğrenme alanındaki gelişmeler, bu sorunlara çözüm olarak otomatik yemek tanıma sistemlerinin geliştirilmesine olanak sağlamıştır. Bossard et al. \cite{bossard2014food101} tarafından sunulan Food-101 veri kümesi otomatik yemek tanıma literatürünün temelini oluşturmuş, He et al. \cite{he2016resnet} tarafından önerilen ResNet mimarisi ve U²-Net \cite{qin2020u2net} gibi bölütleme modelleri yüksek başarı göstermiştir. Ancak mevcut AI destekli sistemlerin temel eksiklikleri yerel ve bölgesel yemeklerin tanınmasında yetersizlik, yüksek aylık abonelik ücretleri, bölütleme kalitesinin düşük olması ve Türkçe dil desteğinin bulunmaması olarak özetlenebilir (Tablo \ref{tab:existing_systems}).
+
+Bu çalışmanın amacı, derin öğrenme tabanlı bir yemek tanıma ve kalori hesaplama sistemi geliştirerek kullanıcıların mobil aygıtları ile çektikleri tek bir fotoğraftan yemek türünü, porsiyon ağırlığını ve kalori değerini otomatik olarak belirlemelerini sağlamaktır. GastronomGöz olarak adlandırılan sistem, ResNet50 tabanlı sınıflandırma modeli \cite{he2016resnet}, U²-Net bölütleme modeli \cite{qin2020u2net}, MiDaS derinlik tahmini \cite{ranftl2020midas} ve porsiyon bazlı ağırlık tahmini algoritması kullanmaktadır. Sistem, Flask çatısı ile geliştirilen RESTful API ve Flutter \cite{wu2018flutter} ile geliştirilen çapraz platform mobil uygulama bileşenlerinden oluşmaktadır. Referans nesneye gerek duymadan, bölütleme maskesi alanı ve yemek sınıfına özgü porsiyon veritabanı kullanılarak ağırlık tahmini yapılmaktadır.
+
+Bu tez çalışmasının bilimsel ve teknolojik katkıları şunlardır: (i) Yemek sınıflandırma, bölütleme ve derinlik tahmini modellerinin bütünleştirildiği bir yapay zeka işlem hattı geliştirilmiştir. (ii) Bölütleme maskesi alanı ve yemek sınıfına özgü porsiyon veritabanı kullanılarak referans nesneye gerek duymayan bir ağırlık tahmini yöntemi önerilmiştir. (iii) Mobil ortamlarda sınırlı kaynaklarda çalışabilmek için modellerin gerektiğinde yüklenmesini sağlayan ve tekil nesne örüntüsü ile bellek verimliliği sağlayan bir mimari tasarlanmıştır. (iv) Arka uç programlama arayüzü, veritabanı yönetimi, ağ belirteci kimlik doğrulaması ve çapraz platform mobil uygulaması içeren eksiksiz bir sistem gerçekleştirilmiştir. (v) Türk kullanıcılar için yerelleştirilmiş arayüz ve Türkçe yemek adları desteği sağlanmıştır.
+\begin{table}[h]
+\centering
+\caption{Mevcut AI Destekli Kalori Takibi Uygulamalarının Karşılaştırması}
+\label{tab:existing_systems}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Özellik} & \textbf{Calorie Mama} & \textbf{Foodvisor} & \textbf{Bitesnap} & \textbf{GastronomGöz} \\ \hline
+AI Yemek Tanıma & \checkmark & \checkmark & \checkmark & \checkmark \\ \hline
+Sınıf Sayısı & 1000+ & 1200+ & 500+ & 101 \\ \hline
+Ağırlık Tahmini & \checkmark & \checkmark & $\times$ & \checkmark \\ \hline
+Segmentasyon & $\times$ & \checkmark & $\times$ & \checkmark \\ \hline
+Türkçe Dil Desteği & $\times$ & $\times$ & $\times$ & \checkmark \\ \hline
+Açık Kaynak & $\times$ & $\times$ & $\times$ & Kısmi \\ \hline
+Ücretlendirme & \$9.99/ay & \$12.99/ay & \$8.99/ay & Ücretsiz \\ \hline
+\end{tabular}
+\end{table}
+
+\pagebreak{}

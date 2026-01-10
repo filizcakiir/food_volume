@@ -1,0 +1,790 @@
+\section{ÖNERİLEN SİSTEM VE İMPLEMENTASYON}
+
+Bu bölümde, GastronomGöz sisteminin önerilen mimarisi ve implementasyonu detaylı olarak açıklanmaktadır. Sistemin geliştirilmesi sürecinde backend API mimarisi, veritabanı tasarımının uygulanması, derin öğrenme modellerinin entegrasyonu, mobil uygulama geliştirme süreci ve deployment işlemleri ayrı alt başlıklar halinde sunulmaktadır.
+
+\subsection{Sistem Genel Akış Diyagramı}
+
+Şekil \ref{fig:system_flow} GastronomGöz sisteminin genel akış diyagramını göstermektedir. Sistem üç ana bileşenden oluşmaktadır: mobil uygulama (Flutter), backend API (Flask) ve yapay zeka modelleri. Kullanıcı mobil uygulama üzerinden yemek fotoğrafını çeker, görüntü backend API'ye gönderilir, yapay zeka modelleri (ResNet50, U²-Net) ile işlenir ve sonuçlar mobil uygulamaya döndürülür.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=1.5cm,
+    box/.style={rectangle, draw, fill=blue!20, text width=3cm, text centered, minimum height=1cm, rounded corners},
+    process/.style={rectangle, draw, fill=green!20, text width=3.5cm, text centered, minimum height=0.8cm},
+    decision/.style={diamond, draw, fill=yellow!20, text width=2.5cm, text centered, aspect=2},
+    arrow/.style={->, >=stealth, thick}
+]
+
+% Mobil Uygulama Katmanı
+\node[box] (mobile) {Mobil Uygulama (Flutter)};
+\node[process, below=0.8cm of mobile] (camera) {Kamera/Galeri};
+\node[process, below=0.5cm of camera] (capture) {Görüntü Yakalama};
+
+% Backend API Katmanı
+\node[process, below=0.8cm of capture] (api) {Backend API (Flask)};
+\node[process, below=0.5cm of api] (auth) {JWT Kimlik Doğrulama};
+\node[process, below=0.5cm of auth] (upload) {Görüntü Yükleme};
+
+% AI Modelleri Katmanı
+\node[box, below=0.8cm of upload] (ai) {Yapay Zeka Modelleri};
+\node[process, below=0.5cm of ai, xshift=-2cm] (resnet) {ResNet50 Sınıflandırma};
+\node[process, below=0.5cm of ai, xshift=2cm] (u2net) {U²-Net Bölütleme};
+\node[process, below=0.8cm of resnet, xshift=2cm] (weight) {Ağırlık Tahmini};
+\node[process, below=0.5cm of weight] (calorie) {Kalori Hesaplama};
+
+% Veritabanı
+\node[process, below=0.8cm of calorie] (db) {Veritabanı Kayıt};
+\node[process, below=0.5cm of db] (response) {Sonuç Döndürme};
+
+% Mobil Sonuç
+\node[box, below=0.8cm of response] (result) {Sonuç Gösterimi};
+
+% Oklar
+\draw[arrow] (mobile) -- (camera);
+\draw[arrow] (camera) -- (capture);
+\draw[arrow] (capture) -- (api);
+\draw[arrow] (api) -- (auth);
+\draw[arrow] (auth) -- (upload);
+\draw[arrow] (upload) -- (ai);
+\draw[arrow] (ai) -- (resnet);
+\draw[arrow] (ai) -- (u2net);
+\draw[arrow] (resnet) -- (weight);
+\draw[arrow] (u2net) -- (weight);
+\draw[arrow] (weight) -- (calorie);
+\draw[arrow] (calorie) -- (db);
+\draw[arrow] (db) -- (response);
+\draw[arrow] (response) -- (result);
+
+\end{tikzpicture}
+\caption{GastronomGöz Sistem Genel Akış Diyagramı}
+\label{fig:system_flow}
+\end{figure}
+
+\subsection{Backend API Mimarisi ve İmplementasyonu}
+
+\subsubsection{Proje Dizin Yapısı ve Modüler Mimari}
+
+Backend projesi, kaygıların ayrılması prensibi doğrultusunda modüler bir yapıda organize edilmiştir \cite{martin2009clean}. Toplam 33 Python dosyası ve 4 ana modülden oluşan bu yapı, kodun okunabilirliğini, bakımını ve test edilebilirliğini artırmaktadır. Proje ana uygulama dosyası (app.py), ortam bazlı yapılandırma dosyası (config.py) ve bağımlılıkları içeren models, schemas, api, core, middleware ve utils klasörlerinden oluşmaktadır. Models klasörü kullanıcı ve tahmin geçmişi ORM modellerini, schemas klasörü kimlik doğrulama ve kullanıcı profili validasyon şemalarını, api klasörü kimlik doğrulama (5 endpoint), kullanıcı profili (3 endpoint), yapay zeka tahmini (2 endpoint) ve geçmiş analitik uç noktalarını içermektedir. Core klasöründe model yöneticisi (tekil nesne örüntüsü), görüntü işleme hattı ve porsiyon tahmin algoritması bulunmaktadır. Middleware klasörü genel hata yönetimini, utils klasörü özel doğrulayıcıları, static klasörü ise kullanıcı yüklenen görüntüleri barındırmaktadır.
+
+Bu dizin organizasyonu, Model-View-Controller mimarisinin bir varyasyonu olarak değerlendirilebilir. Models klasörü veri katmanını, api klasörü controller katmanını, schemas klasörü ise validasyon katmanını temsil etmektedir.
+
+\subsubsection{Flask Application Factory Pattern}
+
+Flask uygulaması, fabrika örüntüsü kullanılarak başlatılmıştır \cite{grinberg2018flask}. Bu yaklaşım, farklı ortamlar (geliştirme, test, üretim) için ayrı yapılandırmalarla uygulama örneklerinin oluşturulmasına olanak tanımaktadır. Ana uygulama dosyasında SQLAlchemy veritabanı ve JWTManager kimlik doğrulama bileşenleri başlatılmakta, CORS desteği eklenmekte ve kimlik doğrulama, kullanıcı profili ve tahmin API blueprint'leri kaydedilmektedir. Factory pattern kullanımı farklı ortamlar için ayrı örnekler oluşturulmasına, birim testlerde test odaklı yapılandırmalar kullanılmasına, döngüsel import problemlerinin önlenmesine ve eklentilerin geç başlatma ile yüklenmesine olanak sağlamaktadır.
+
+\pagebreak{}
+
+\subsubsection{Veritabanı Modellerinin İmplementasyonu}
+
+SQLAlchemy ORM kullanılarak tanımlanan veritabanı modelleri, Python sınıfları olarak gerçekleştirilmiştir \cite{sqlalchemy2023}. Bu yaklaşım, SQL injection saldırılarını önlemekte ve veritabanı işlemlerini nesne yönelimli bir şekilde gerçekleştirmeyi sağlamaktadır.
+
+User modeli users tablosunu temsil etmekte ve kullanıcı kimlik bilgilerini saklamaktadır. Model birincil anahtar olarak id, benzersiz ve indekslenmiş email alanı, password\_hash alanı, isim, aktiflik durumu ve oluşturulma zamanı alanlarını içermektedir. UserProfile ile bire-bir ilişki ve PredictionHistory ile bire-çok ilişki tanımlanmıştır. Şifre hashleme işlemi pbkdf2:sha256 algoritması ile gerçekleştirilmektedir. Bu algoritma, NIST tarafından önerilen güvenli bir şifreleme yöntemidir \cite{grassi2017bcrypt}.
+
+UserProfile modeli, kullanıcıların fiziksel özelliklerini ve sağlık metriklerini saklamaktadır. Model boy (cm), kilo (kg), yaş, cinsiyet, aktivite seviyesi, hedef tipi ve günlük kalori hedefi alanlarını içermektedir. Model üzerinde VKİ (Vücut Kitle İndeksi) hesaplama, BMR (Bazal Metabolizma Hızı) hesaplama ve TDEE (Toplam Günlük Enerji Harcaması) hesaplama fonksiyonları tanımlanmıştır. BMR hesaplaması Harris-Benedict formülü kullanılarak yapılmaktadır. Erkekler için formül 88.362 + (13.397 × kilo) + (4.799 × boy) - (5.677 × yaş), kadınlar için ise 447.593 + (9.247 × kilo) + (3.098 × boy) - (4.330 × yaş) şeklindedir. TDEE hesaplamasında aktivite seviyesine göre çarpanlar kullanılmaktadır: hareketsiz (1.2), hafif aktif (1.375), orta aktif (1.55), çok aktif (1.725) ve aşırı aktif (1.9).
+
+\pagebreak{}
+
+\subsubsection{RESTful API Endpoint Tasarımı}
+
+Sistem, REST (Representational State Transfer) mimari prensiplerine uygun olarak tasarlanmıştır \cite{fielding2002rest}. Mobil uygulama tarafından kullanılan 25 API endpoint'i gerçekleştirilmiştir. Tüm endpoint'ler standart HTTP metodlarını kullanmakta ve JSON formatında veri alışverişi yapmaktadır.
+
+\begin{table}[h]
+\centering
+\caption{Backend API Endpoint Listesi (Mobil Uygulamada Kullanılan)}
+\label{tab:api_endpoints}
+\small
+\begin{tabular}{|l|l|l|p{4cm}|}
+\hline
+\textbf{Endpoint} & \textbf{Method} & \textbf{Auth} & \textbf{Açıklama} \\ \hline
+\multicolumn{4}{|c|}{\textbf{Authentication API (5 endpoint)}} \\ \hline
+/auth/register & POST & - & Yeni kullanıcı kaydı \\ \hline
+/auth/login & POST & - & JWT token üretimi \\ \hline
+/auth/refresh & POST & Refresh & Access token yenileme \\ \hline
+/auth/me & GET & JWT & Kullanıcı bilgileri \\ \hline
+/auth/logout & POST & JWT & Token invalidation \\ \hline
+\multicolumn{4}{|c|}{\textbf{User Profile API (3 endpoint)}} \\ \hline
+/api/user/profile & GET & JWT & Profil getirme \\ \hline
+/api/user/profile & PUT & JWT & Profil güncelleme \\ \hline
+/api/user/goals & PUT & JWT & Kalori hedefi ayarlama \\ \hline
+\multicolumn{4}{|c|}{\textbf{Prediction API (2 endpoint)}} \\ \hline
+/api/predict & POST & JWT & Yemek tahmini ve kaydetme \\ \hline
+/api/food-classes & GET & - & Yemek listesi (101 sınıf) \\ \hline
+\multicolumn{4}{|c|}{\textbf{History API (4 endpoint)}} \\ \hline
+/api/history & GET & JWT & Tahmin geçmişi (filtreleme, sayfalama) \\ \hline
+/api/history/<id> & GET & JWT & Tahmin detayı \\ \hline
+/api/history/<id> & PATCH & JWT & Tahmin güncelleme (meal\_type, note, favorite) \\ \hline
+/api/history/<id> & DELETE & JWT & Tahmin silme \\ \hline
+\multicolumn{4}{|c|}{\textbf{Daily Log \& Stats API (4 endpoint)}} \\ \hline
+/api/daily-log & GET & JWT & Günlük özet (kalori, makrolar) \\ \hline
+/api/daily-log/week & GET & JWT & Haftalık özet (7 gün) \\ \hline
+/api/daily-log/month & GET & JWT & Aylık özet (30 gün) \\ \hline
+/api/stats/meal-distribution & GET & JWT & Öğün dağılımı istatistikleri \\ \hline
+\multicolumn{4}{|c|}{\textbf{Notification API (4 endpoint)}} \\ \hline
+/api/notifications & GET & JWT & Bildirim listesi \\ \hline
+/api/notifications/unread & GET & JWT & Okunmamış bildirim sayısı \\ \hline
+/api/notifications/<id>/read & POST & JWT & Tekil okundu işaretle \\ \hline
+/api/notifications/read-all & POST & JWT & Tümünü okundu işaretle \\ \hline
+\multicolumn{4}{|c|}{\textbf{Achievement \& Streak API (3 endpoint)}} \\ \hline
+/api/achievements & GET & JWT & Tüm başarı rozetleri listesi \\ \hline
+/api/achievements/user & GET & JWT & Kullanıcının kazandığı rozetler \\ \hline
+/api/streak & GET & JWT & Kullanıcı streak (ardışık gün) bilgisi \\ \hline
+\end{tabular}
+\end{table}
+
+Kullanıcı kimlik doğrulaması, JSON Web Token standardı kullanılarak gerçekleştirilmiştir \cite{jones2020jwt}. Sistem iki tür token kullanmaktadır: kısa ömürlü access token (15 dakika, API isteklerinde kullanılır) ve uzun ömürlü refresh token (30 gün, access token yenilemede kullanılır).
+
+\pagebreak{}
+
+\subsection{Yapay Zeka Modellerinin Entegrasyonu}
+
+\subsubsection{Model Yönetim Sistemi - Singleton Pattern}
+
+Derin öğrenme modellerinin yönetimi için tekil nesne tasarım örüntüsü kullanılarak ModelManager sınıfı geliştirilmiştir. Bu yaklaşım, uygulama boyunca tek bir model yöneticisi örneğinin oluşturulmasını garantileyerek bellek verimliliği sağlamaktadır. ModelManager sınıfı sınıf düzeyinde instance ve initialized bayrakları tutmakta, ilk oluşturulduğunda PyTorch device'ı (CUDA varsa GPU, yoksa CPU) belirlemekte ve dört model için (food\_model, u2net\_model, midas\_model, calories\_df) başlangıçta None değerleri atamaktadır. Tekil nesne örüntüsünün sağladığı avantajlar modellerin bellekte tek bir kopyasının tutulması, güvenli model erişimi, tutarlı model versiyonu kullanımı ve bellek tüketiminin minimize edilmesidir.
+
+Modeller geç yükleme mekanizması ile ilk talep anında yüklenmektedir. Bu yaklaşım, uygulama başlangıç süresini önemli ölçüde azaltmaktadır. Yemek sınıflandırma modeli yükleme fonksiyonu önce modelin önbellekte olup olmadığını kontrol etmekte, varsa doğrudan döndürmekte, yoksa weights klasöründen model\_trained\_101class.hdf5 dosyasını yükleyerek önbelleğe almaktadır.
+
+\subsubsection{Yemek Sınıflandırma Modeli - ResNet50}
+
+Food-101 veri seti üzerinde ince ayar yapılmış ResNet50 modeli kullanılmıştır \cite{bossard2014food101}. Model, ImageNet ağırlıklarıyla ön eğitilmiş olup, aktarım öğrenimi yaklaşımı ile yemek tanıma görevine uyarlanmıştır \cite{pan2010transfer}. ResNet50 mimarisi 25.6 milyon parametre içermekte \cite{he2016resnet}, 224×224×3 boyutunda RGB görüntü girdisi almakta ve softmax aktivasyonu ile 101 yemek sınıfı çıktısı üretmektedir. Model Keras/TensorFlow çatısı ile geliştirilmiş \cite{abadi2016tensorflow}, Adam optimizer ve 0.0001 öğrenme oranı kullanılarak eğitilmiştir.
+
+Görüntü ön işleme hattında görüntü 224×224 piksel boyutuna yeniden ölçeklenmekte, dizi formatına dönüştürülmekte, batch boyutu için genişletilmekte ve 0-1 aralığına normalize edilmektedir.
+
+\pagebreak{}
+
+\subsubsection{Segmentasyon Modeli - U2-Net}
+
+Yemek görüntülerinden arka plan ayrıştırması için U2-Net segmentasyon modeli kullanılmıştır \cite{qin2020u2net}. Model, iç içe U-yapısı mimarisi sayesinde çok ölçekli öznitelik çıkarımı gerçekleştirmektedir. U2NET-P hafif versiyonu 4.7 milyon parametre ile mobil platformlar için optimize edilmiştir. Model 320×320×3 boyutunda giriş almakta ve 320×320 boyutunda ikili maske (0-255 değer aralığı) çıktısı üretmektedir. Model PyTorch çatısı ile geliştirilmiş \cite{paszke2019pytorch} ve kesişim bölümü birleşim metriki ile değerlendirilmektedir.
+
+Segmentasyon hattı beş adımdan oluşmaktadır. İlk olarak görüntü RGB formatında yüklenmekte ve 320×320 boyutuna yeniden ölçeklenmektedir. Görüntü tensor formatına dönüştürülmekte ve ImageNet istatistikleri ile normalize edilmektedir (ortalama: 0.485, 0.456, 0.406; standart sapma: 0.229, 0.224, 0.225). İkinci adımda model çıkarımı gradyan hesaplaması olmadan gerçekleştirilmekte ve yedi çıktı seviyesinden ilki (d1) kullanılmaktadır. Üçüncü adımda tahmin normalize edilmekte ve 0-255 aralığına ölçeklenmektedir. Dördüncü adımda maske orijinal görüntü boyutuna yeniden ölçeklenmekte, beşinci adımda ise 127 eşik değeri ile ikili maskeye dönüştürülmektedir. Segmentasyon maskesi yemeğin piksel düzeyinde konturunu belirlemekte ve porsiyon ağırlığı tahmininde kullanılmaktadır.
+
+\pagebreak{}
+
+Ağırlık hesaplama algoritması üç aşamalı olarak çalışmaktadır. İlk aşamada maske alanı, genişlik ve yükseklik değerleri kullanılarak porsiyon boyutu tahmin edilmektedir. İkinci aşamada yemek sınıfı porsiyon veritabanında aranmakta, bulunursa ilgili porsiyon için standart ağırlık, bulunamazsa varsayılan ağırlık alınmaktadır. Üçüncü aşamada alan bazlı ince ayar yapılmaktadır: maske alanı toplam görüntü alanına (640×480 piksel) bölünerek normalize edilmekte ve alan faktörü hesaplanmaktadır. Alan faktörü 0.8 ile 1.2 arasında sınırlandırılarak baz ağırlık üzerinde maksimum ±20% ayarlama yapılmaktadır. Algoritmanın çalışma prensibi şu adımları içermektedir: maske alanı hesaplanması (beyaz piksel sayısı), alanın toplam görüntü alanına göre normalize edilmesi, porsiyon boyutu belirlenmesi (0.15'ten küçükse küçük, 0.15-0.35 arası ise orta, 0.35'ten büyükse büyük), veritabanından baz ağırlık alınması ve alan faktörü ile ince ayar yapılması.
+
+\subsubsection{Derinlik Tahmini - MiDaS (Gelecek Geliştirme)}
+
+MiDaS algoritması, tek kamera görüntüsünden derinlik tahmini için entegre edilmiştir \cite{ranftl2020midas}. Model gelecekte hacim bazlı ağırlık tahmini için kullanılacaktır. DPT\_Large transformer tabanlı mimarisi göreceli derinlik haritası çıktısı üretmektedir. Model PyTorch Hub üzerinden yüklenmekte olup şu an pasif durumdadır ve gelecek versiyonlarda aktifleştirilecektir.
+
+\subsubsection{Kalori Hesaplama ve Besin Değerleri}
+
+Her yemek sınıfı için 100 gram başına kalori değerleri CSV formatında saklanmaktadır. Kalori hesaplaması şu formül ile yapılmaktadır:
+
+\begin{equation}
+\text{Toplam Kalori} = \frac{\text{Tahmini Ağırlık (g)}}{100} \times \text{Kalori}_{100g}
+\end{equation}
+
+Kalori hesaplama fonksiyonu kalori veri çerçevesinde yemek sınıfını aramakta, bulunamazsa hata vermektedir. Yemek bulunursa 100 gram başına kalori değeri alınmakta ve tahmini ağırlık ile çarpılarak toplam kalori hesaplanmaktadır. Sonuç virgülden sonra bir basamak olacak şekilde yuvarlanmaktadır.
+
+\subsubsection{Yemek Tanıma ve Kalori Hesaplama Algoritması}
+
+Algoritma \ref{alg:food_recognition} GastronomGöz sisteminin temel yemek tanıma, bölütleme, derinlik tahmini ve kalori hesaplama sürecini özetlemektedir. Algoritma, görüntü ön işleme, derin öğrenme modelleri ile tahmin ve porsiyon bazlı ağırlık hesaplama adımlarını içermektedir.
+
+\begin{algorithm}[H]
+\caption{Yemek Tanıma ve Kalori Hesaplama Algoritması}
+\label{alg:food_recognition}
+\begin{algorithmic}[1]
+\Require Kullanıcıdan alınan yemek görüntüsü $I$
+\Ensure Yemek sınıfı, ağırlık ve kalori bilgisi
+
+\State \textbf{Adım 1: Görüntü Ön İşleme}
+\State $I_{resnet} \gets$ Görüntüyü 224×224 boyutuna yeniden ölçekle
+\State $I_{resnet} \gets$ $I_{resnet}$ / 255.0 \Comment{0-1 normalize et}
+\State $I_{u2net} \gets$ Görüntüyü 320×320 boyutuna yeniden ölçekle
+\State $I_{u2net} \gets$ ImageNet istatistikleri ile normalize et
+\State $I_{midas} \gets$ MiDaS için görüntüyü hazırla
+
+\State
+\State \textbf{Adım 2: Yemek Sınıflandırma (ResNet50)}
+\State ModelManager örneğini al
+\State $food\_model \gets$ ResNet50 modelini yükle
+\State $predictions \gets food\_model.predict(I_{resnet})$
+\State $class\_id \gets \arg\max(predictions)$
+\State $confidence \gets \max(predictions)$
+\State $food\_name \gets$ Sınıf ID'den yemek adını al
+
+\State
+\State \textbf{Adım 3: Segmentasyon (U²-Net)}
+\State $u2net\_model \gets$ U²-Net modelini yükle
+\State $mask \gets u2net\_model(I_{u2net})$
+\State $mask \gets$ mask[0] \Comment{İlk çıktı katmanını al}
+\State $mask \gets$ Normalize et ve 0-255 aralığına ölçekle
+\State $mask \gets$ Orijinal görüntü boyutuna yeniden ölçekle
+\State $binary\_mask \gets$ Eşik değeri 127 ile ikili maskeye dönüştür
+
+\State
+\State \textbf{Adım 4: Derinlik Tahmini (MiDaS)}
+\State $midas\_model \gets$ MiDaS modelini yükle
+\State $depth\_map \gets midas\_model(I_{midas})$
+\State $depth\_map \gets$ Normalize et
+\State $avg\_depth \gets$ Maske bölgesindeki ortalama derinlik
+\State $depth\_factor \gets$ Derinlik bilgisinden hacim katsayısı hesapla
+
+\State
+\State \textbf{Adım 5: Ağırlık Tahmini}
+\State $mask\_area \gets$ $binary\_mask$ içinde beyaz piksel sayısı
+\State $image\_area \gets$ Görüntü genişliği × yüksekliği
+\State $area\_ratio \gets mask\_area / image\_area$
+
+\If{$area\_ratio < 0.15$}
+    \State $portion\_size \gets$ "küçük"
+\ElsIf{$0.15 \leq area\_ratio < 0.35$}
+    \State $portion\_size \gets$ "orta"
+\Else
+    \State $portion\_size \gets$ "büyük"
+\EndIf
+
+\State $base\_weight \gets$ Porsiyon veritabanından al$(food\_name, portion\_size)$
+\State $area\_factor \gets \min(\max(area\_ratio \times 2.5, 0.8), 1.2)$
+\State $estimated\_weight \gets base\_weight \times area\_factor \times depth\_factor$
+
+\State
+\State \textbf{Adım 6: Kalori Hesaplama}
+\State $calorie\_per\_100g \gets$ Kalori veritabanından al$(food\_name)$
+\State $total\_calories \gets (estimated\_weight / 100) \times calorie\_per\_100g$
+\State $total\_calories \gets$ Yuvarlama$(total\_calories, 1)$ \Comment{1 ondalık basamak}
+
+\State
+\State \textbf{Adım 7: Sonuç Döndürme}
+\State \Return $\{food\_name, confidence, estimated\_weight, total\_calories, mask, depth\_map\}$
+\end{algorithmic}
+\end{algorithm}
+
+Algoritma, kullanıcının yüklediği görüntüyü alarak sırasıyla ön işleme, sınıflandırma, bölütleme, derinlik tahmini, ağırlık tahmini ve kalori hesaplama adımlarını gerçekleştirmektedir. ResNet50 modeli yemek türünü belirlerken, U²-Net modeli yemeğin konturunu çıkarmakta, MiDaS modeli ise derinlik bilgisi ile hacim tahminine katkı sağlamaktadır. Ağırlık tahmini, bölütleme maskesi alanı, derinlik faktörü ve yemek sınıfına özgü porsiyon veritabanı kullanılarak referans nesneye gerek duymadan yapılmaktadır.
+
+\pagebreak{}
+
+\subsection{Önerilen Mobil Uygulama Mimarisi}
+
+\subsubsection{Flutter Framework ve Dart}
+
+Mobil uygulama, Google tarafından geliştirilen Flutter framework'ü (versiyon 3.16+) ve Dart programlama dili kullanılarak geliştirilmiştir \cite{wu2018flutter}. Flutter, tek kod tabanı (single codebase) ile hem iOS hem de Android platformlarında native performans sunan cross-platform bir framework'tür \cite{biorn2018dartlang}. Uygulama tam işlevsel olarak tamamlanmış olup, iOS ve Android platformlarında çalışmaktadır.
+
+Flutter seçiminin başlıca avantajları tek kod tabanı ile çoklu platform desteği (iOS, Android, Web), native performansa yakın hız (60 FPS), hot reload özelliği ile hızlı geliştirme döngüsü, zengin widget kütüphanesi ve Material Design 3.0 desteği \cite{google2023material} ile güçlü durum yönetimi çözümleridir (Provider, Riverpod, BLoC).
+
+\subsubsection{Uygulama Mimarisi}
+
+Mobil uygulama katmanlı mimari prensibi ile organize edilmiştir. Ana dizin yapısı main.dart uygulama başlangıç dosyası, screens klasörü ekran bileşenlerini (kimlik doğrulama, ana sayfa, kamera, tahmin sonuçları, geçmiş, istatistikler, profil ekranları), widgets klasörü yeniden kullanılabilir bileşenleri (özel buton, metin alanı, yüklenme göstergesi), models klasörü veri modellerini (kullanıcı, tahmin, günlük log), providers klasörü durum yönetimi sağlayıcılarını (kimlik doğrulama, kullanıcı, tahmin, geçmiş), services klasörü API servislerini (genel API, kimlik doğrulama, tahmin, depolama) ve utils klasörü yardımcı fonksiyonları (sabitler, doğrulayıcılar, yardımcılar) içermektedir. Config klasöründe tema ve renk şeması tanımlanmaktadır. Bu yapı kaygıların ayrılması prensibi ile her katmanın kendi sorumluluğuna odaklanmasını sağlamaktadır.
+
+\pagebreak{}
+
+\subsubsection{Ana Ekranlar ve Kullanıcı Akışı}
+
+GastronomGöz mobil uygulaması, toplam 10 ana ekrandan oluşmaktadır:
+
+\textbf{1. Authentication Ekranları:}
+\begin{itemize}
+    \item \textbf{Login Screen:} Email ve şifre ile giriş
+    \item \textbf{Register Screen:} Yeni kullanıcı kaydı
+\end{itemize}
+
+\textbf{2. Ana Navigasyon Ekranları:}
+
+Mobil uygulama toplamda 9 ekran içermektedir: Login, Register, Home, Camera, Prediction Loading, Prediction Result, History, Stats, Notifications ve Profile.
+
+\subsubsection{Kimlik Doğrulama Ekranları}
+
+\textbf{Login Screen:}
+Kullanıcı girişi için email ve şifre alanları bulunmaktadır. Form validasyonu gerçek zamanlı olarak yapılmakta, hatalı girişlerde kullanıcıya anlaşılır hata mesajları gösterilmektedir. "Remember Me" seçeneği ile kullanıcı bilgileri güvenli şekilde saklanmaktadır.
+
+\textbf{Register Screen:}
+Yeni kullanıcı kaydı için isim, email ve şifre alanları bulunmaktadır. Şifre güvenlik gereksinimleri (minimum 6 karakter) kontrol edilmekte ve şifre görünürlük toggle butonu sunulmaktadır.
+
+\pagebreak{}
+
+\subsubsection{Ana Sayfa (Home Screen)}
+
+Ana sayfa kullanıcıyı karşılayan merkezi ekrandır. Üst kısımda hoşgeldin mesajı ve kullanıcı email adresi gösterilmektedir. Sağ üstte bildirim ikonu (unread count badge ile) ve profil ikonu bulunmaktadır.
+
+Ana içerikte 2x2 grid düzeninde 4 quick action kartı yer almaktadır:
+\begin{itemize}
+    \item \textbf{Scan Food:} Kamera ekranına yönlendirme
+    \item \textbf{History:} Geçmiş yemekler listesine yönlendirme
+    \item \textbf{Stats:} İstatistik ekranına yönlendirme
+    \item \textbf{Logout:} Çıkış yapma işlemi
+\end{itemize}
+
+Ekranın sağ alt köşesinde floating action button ile hızlı kamera erişimi sağlanmaktadır.
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/home_screen.png}
+\caption{Ana Sayfa Ekranı}
+\label{fig:home_screen}
+\end{figure}
+
+\subsubsection{Kamera Ekranı (Camera Screen)}
+
+Kamera ekranında kullanıcı iki seçenek ile karşılaşmaktadır:
+\begin{itemize}
+    \item \textbf{Take Photo:} Cihaz kamerasını açarak anlık fotoğraf çekme
+    \item \textbf{Choose from Gallery:} Galeriden mevcut fotoğraf seçme
+\end{itemize}
+
+image\_picker paketi (versiyon 1.0+) kullanılarak platform bağımsız görüntü seçimi sağlanmaktadır. Seçilen görüntü önizleme olarak gösterilmekte ve kullanıcı "Analyze" butonu ile tahmin işlemini başlatmaktadır. Görüntü otomatik olarak optimize edilmektedir (max 1920x1080, \%85 kalite).
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/camera_screen.png}
+\caption{Kamera Ekranı - Görüntü Seçimi}
+\label{fig:camera_screen}
+\end{figure}
+
+\subsubsection{Tahmin Ekranları}
+
+\textbf{Prediction Loading Screen:}
+Görüntü backend'e gönderildikten sonra animasyonlu yüklenme göstergesi kullanıcıya sunulmaktadır. Bu ekranda "Analyzing image..." mesajı ve circular progress indicator gösterilmektedir.
+
+\textbf{Prediction Result Screen:}
+Tahmin sonuçları kullanıcıya detaylı şekilde sunulmaktadır:
+\begin{itemize}
+    \item Yemek görseli ve segmentasyon maskesi
+    \item Tanınan yemek adı ve güven skoru
+    \item Tahmin edilen porsiyon ağırlığı (gram)
+    \item Kalori değeri
+    \item Besin değerleri (protein, karbonhidrat, yağ)
+    \item Öğün tipi seçimi (breakfast, lunch, dinner, snack)
+    \item Not ekleme alanı
+\end{itemize}
+
+Kullanıcı "Save" butonu ile kaydı history'ye ekleyebilmektedir.
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/prediction_result.png}
+\caption{Tahmin Sonuçları Ekranı}
+\label{fig:prediction_result}
+\end{figure}
+
+\pagebreak{}
+
+\subsubsection{Geçmiş Ekranı (History Screen)}
+
+History ekranı kullanıcının kaydettiği tüm yemek tahminlerini listelemektedir. Veriler tarih bazında gruplandırılmış olarak gösterilmektedir (örn: "Today", "Yesterday", "3 days ago").
+
+Her yemek kartında şu bilgiler yer almaktadır:
+\begin{itemize}
+    \item Yemek görseli (thumbnail)
+    \item Yemek adı
+    \item Kalori değeri
+    \item Porsiyon ağırlığı
+    \item Öğün tipi badge'i
+    \item Tarih ve saat
+\end{itemize}
+
+Sayfalama (pagination) desteği ile 50'şer kayıt yüklenmekte ve scroll ile otomatik yeni sayfa yüklenmektedir.
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/history_screen.png}
+\caption{Geçmiş Ekranı}
+\label{fig:history_screen}
+\end{figure}
+
+\textbf{History Detail Screen:}
+
+Kullanıcı herhangi bir yemek kartına tıkladığında detay ekranı açılmaktadır. Bu ekranda:
+
+\begin{itemize}
+    \item Yemek görseli (tam boyut)
+    \item Detaylı besin değerleri (kalori, protein, karbonhidrat, yağ)
+    \item Porsiyon ağırlığı
+    \item Öğün tipi
+    \item Kullanıcı notu
+    \item Tarih ve saat bilgisi
+\end{itemize}
+
+\textbf{Düzenleme Özellikleri:}
+
+AppBar'da iki aksiyon butonu bulunmaktadır:
+
+\begin{itemize}
+    \item \textbf{Edit Butonu:} Düzenleme dialog'u açılır
+    \begin{itemize}
+        \item Öğün tipi değiştirme (breakfast, lunch, dinner, snack)
+        \item Not ekleme/düzenleme
+        \item Favori olarak işaretleme (isFavorite checkbox)
+    \end{itemize}
+    \item \textbf{Delete Butonu:} Onay dialog'u ile kayıt silinir
+    \begin{itemize}
+        \item "Are you sure?" konfirmasyonu
+        \item Silme sonrası history listesine geri dönüş
+        \item Backend'den DELETE /api/history/<id> çağrılır
+    \end{itemize}
+\end{itemize}
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/history_detail.png}
+\caption{Geçmiş Detay Ekranı - Düzenleme ve Silme}
+\label{fig:history_detail}
+\end{figure}
+
+\subsubsection{İstatistik Ekranı (Stats Screen)}
+
+İstatistik ekranı fl\_chart paketi kullanılarak veri görselleştirmesi sağlamaktadır. Ekranın üst kısmında period selector bulunmaktadır (Week/Month/Year).
+
+\textbf{Görselleştirmeler:}
+\begin{itemize}
+    \item \textbf{Today's Summary Card:} Günlük kalori, protein, karbonhidrat ve yağ toplamları
+    \item \textbf{Calories Line Chart:} Seçilen periyotta günlük kalori trend grafiği
+    \item \textbf{Macros Bar Chart:} Protein, karbonhidrat ve yağ dağılımı
+    \item \textbf{Meal Distribution Pie Chart:} Öğün tiplerine göre kalori dağılımı (breakfast, lunch, dinner, snack)
+\end{itemize}
+
+Backend API'lerinden günlük (/api/daily-log), haftalık (/api/daily-log/week), aylık (/api/daily-log/month) ve öğün dağılımı (/api/stats/meal-distribution) verileri çekilmektedir.
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/stats_screen.png}
+\caption{İstatistik Ekranı - Grafikler}
+\label{fig:stats_screen}
+\end{figure}
+
+\pagebreak{}
+
+\subsubsection{Bildirim ve Başarı Sistemi}
+
+Sistem, kullanıcı etkileşimlerini artırmak ve motivasyon sağlamak amacıyla bildirim ve başarı rozeti (achievement) sistemi içermektedir.
+
+\textbf{Bildirim Ekranı (Notifications Screen):}
+
+Ana sayfa AppBar'ında bildirim ikonu bulunmaktadır. Okunmamış bildirim sayısı kırmızı badge ile gösterilmektedir (örn: "5" veya "99+" için).
+
+Bildirim ekranı özellikleri:
+\begin{itemize}
+    \item Her bildirim kartında başlık, mesaj, tip (info/success/warning) ve tarih bilgisi
+    \item Okunmamış bildirimler belirgin renkte (bold) gösterilmektedir
+    \item "Mark All as Read" butonu ile tüm bildirimler okundu işaretlenebilmektedir
+    \item Her bildirime tıklanarak tekil olarak okundu işaretlenebilmektedir
+    \item Pull-to-refresh ile liste yenilenebilmektedir
+\end{itemize}
+
+Backend API çağrıları:
+\begin{itemize}
+    \item GET /api/notifications - Bildirim listesi
+    \item GET /api/notifications/unread - Okunmamış sayı
+    \item POST /api/notifications/<id>/read - Tekil okundu işaretle
+    \item POST /api/notifications/read-all - Tümünü okundu işaretle
+\end{itemize}
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/notifications_screen.png}
+\caption{Bildirimler Ekranı}
+\label{fig:notifications_screen}
+\end{figure}
+
+\textbf{Başarı Rozeti Sistemi (Achievement System):}
+
+Backend'de başarı rozeti sistemi implementedir ve kullanıcı aktivitelerine göre otomatik rozet verilmektedir. Mobil uygulama NotificationService aracılığıyla rozetleri backend'den çekmektedir.
+
+Backend API çağrıları:
+\begin{itemize}
+    \item GET /api/achievements - Tüm mevcut rozetleri listeler
+    \item GET /api/achievements/user - Kullanıcının kazandığı rozetleri getirir
+    \item GET /api/daily-logs/streak - Kullanıcı streak (ardışık gün) bilgileri
+\end{itemize}
+
+\textbf{Başarı Rozetleri Ekranı (Achievements Screen):}
+
+Profil ekranındaki "Achievements" menü öğesinden erişilmektedir. Ekran iki ana bölümden oluşmaktadır:
+
+\textbf{1. Streak (Ardışık Gün) Kartı:}
+\begin{itemize}
+    \item \textbf{Current Streak:} Ardışık günlerdeki yemek kayıt sayısı
+    \item \textbf{Longest Streak:} En uzun ardışık kayıt dönemi
+    \item \textbf{Total Active Days:} Toplam aktif gün sayısı
+\end{itemize}
+
+\textbf{2. Rozet Listesi:}
+
+Her rozet kartında şu bilgiler bulunmaktadır:
+\begin{itemize}
+    \item Rozet ikonu (emoji\_events)
+    \item Rozet adı ve açıklaması
+    \item Puan değeri (points)
+    \item Kazanılma durumu göstergesi
+\end{itemize}
+
+\textbf{Görsel Gösterimler:}
+\begin{itemize}
+    \item \textbf{Kazanılmış rozetler:} Yeşil arka plan, yeşil check\_circle ikonu
+    \item \textbf{Kilitli rozetler:} Gri arka plan, gri lock ikonu
+\end{itemize}
+
+Pull-to-refresh ile liste yenilenebilmekte ve tüm rozet durumları gerçek zamanlı güncellenmektedir.
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/achievements_screen.png}
+\caption{Başarı Rozetleri Ekranı - Streak ve Rozet Listesi}
+\label{fig:achievements_screen}
+\end{figure}
+
+\textbf{Örnek Başarı Bildirimleri:}
+\begin{itemize}
+    \item "İlk Adım" - İlk yemek kaydedildiğinde
+    \item "Tutarlı Takip" - Ardışık günlerde yemek eklendiğinde
+    \item "Sağlıklı Yaşam" - Belirli hedeflere ulaşıldığında
+\end{itemize}
+
+Bildirimler gerçek zamanlı olarak kullanıcıya iletilmekte ve unread badge otomatik güncellenmektedir.
+
+\subsubsection{Profil Ekranı (Profile Screen)}
+
+Profil ekranında kullanıcı bilgileri ve hesap ayarları yer almaktadır.
+
+\textbf{Profil Header:}
+\begin{itemize}
+    \item Kullanıcı avatar (ismin ilk harfi)
+    \item Kullanıcı adı
+    \item Email adresi
+\end{itemize}
+
+\textbf{İstatistik Kartları:}
+Kullanıcının fiziksel verileri varsa BMI, BMR ve TDEE değerleri hesaplanarak gösterilmektedir.
+
+\textbf{Menü Öğeleri:}
+\begin{itemize}
+    \item \textbf{Edit Profile:} Kullanıcı bilgileri düzenleme (ad, boy, kilo, yaş, cinsiyet, hedef kalori)
+    \item \textbf{Notifications:} Bildirimler ekranına yönlendirme (okunmamış sayı badge ile)
+    \item \textbf{Achievements:} Başarı rozetleri ekranına yönlendirme
+    \item \textbf{Language:} Dil seçimi (Türkçe / English)
+    \item \textbf{About:} Uygulama hakkında dialog
+    \item \textbf{Logout:} Çıkış yapma butonu (token temizleme ve login ekranına yönlendirme)
+\end{itemize}
+
+% EKRAN GÖRÜNTÜSÜ EKLENECEK
+\begin{figure}[h]
+\centering
+% \includegraphics[width=0.35\textwidth]{images/profile_screen.png}
+\caption{Profil Ekranı}
+\label{fig:profile_screen}
+\end{figure}
+
+\textbf{3. Detay Ekranları:}
+\begin{itemize}
+    \item \textbf{Prediction Result Screen:} Tahmin sonuçları görüntüleme
+    \item \textbf{History Detail Screen:} Tahmin detayları
+    \item \textbf{Edit Profile Screen:} Profil düzenleme
+\end{itemize}
+
+\textbf{Kullanıcı Akış Diyagramı:}
+
+\begin{verbatim}
+[Splash Screen]
+    ↓
+[Token kontrolü] → Var ise → [Home Screen]
+    ↓ Yok ise
+[Login Screen] → [Register Screen] (opsiyonel)
+    ↓
+[Home Screen] ← [Bottom Navigation] → [Camera/History/Stats/Profile]
+    ↓
+[Camera Screen] → Fotoğraf çek/seç
+    ↓
+[Upload & Processing] → Loading indicator
+    ↓
+[Prediction Result Screen] → Kaydet
+    ↓
+[History Screen] ← Güncellendi
+\end{verbatim}
+
+\subsubsection{State Management - Provider Pattern}
+
+Uygulama state yönetimi için Provider pattern kullanılmıştır. Provider, Flutter ekosisteminde önerilen ve yaygın olarak kullanılan bir state management çözümüdür.
+
+\textbf{AuthProvider Örneği:}
+
+\begin{verbatim}
+class AuthProvider extends ChangeNotifier {
+  AuthState _state = AuthState.initial;
+  User? _currentUser;
+  String? _accessToken;
+
+  Future<void> login(String email, String password) async {
+    _state = AuthState.loading;
+    notifyListeners();
+
+    try {
+      final response = await _authService.login(email, password);
+      _currentUser = response.user;
+      _accessToken = response.accessToken;
+
+      await _storageService.saveToken(response.accessToken);
+
+      _state = AuthState.authenticated;
+    } catch (e) {
+      _state = AuthState.error;
+    }
+    notifyListeners();
+  }
+
+  void logout() {
+    _currentUser = null;
+    _accessToken = null;
+    _storageService.clearToken();
+    _state = AuthState.unauthenticated;
+    notifyListeners();
+  }
+}
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{API Entegrasyonu}
+
+Backend API ile iletişim için Dio HTTP client kütüphanesi kullanılmıştır. Dio, interceptor desteği, timeout yönetimi ve error handling özellikleri sunmaktadır.
+
+\textbf{API Service İmplementasyonu:}
+
+\begin{verbatim}
+class ApiService {
+  final Dio _dio;
+  static const String baseUrl = 'https://api.gastronomgoz.com';
+
+  ApiService() : _dio = Dio(BaseOptions(
+    baseUrl: baseUrl,
+    connectTimeout: Duration(seconds: 10),
+    receiveTimeout: Duration(seconds: 30),
+    headers: {'Content-Type': 'application/json'},
+  )) {
+    _dio.interceptors.add(AuthInterceptor());
+    _dio.interceptors.add(LoggingInterceptor());
+  }
+
+  Future<PredictionResult> predict({
+    required File image,
+    String? mealType,
+    String? note,
+  }) async {
+    final formData = FormData.fromMap({
+      'image': await MultipartFile.fromFile(
+        image.path,
+        filename: path.basename(image.path),
+      ),
+      if (mealType != null) 'meal_type': mealType,
+      if (note != null) 'note': note,
+    });
+
+    final response = await _dio.post(
+      '/api/predict',
+      data: formData,
+    );
+
+    return PredictionResult.fromJson(response.data['data']);
+  }
+}
+\end{verbatim}
+
+\textbf{Auth Interceptor - Token Yönetimi:}
+
+\begin{verbatim}
+class AuthInterceptor extends Interceptor {
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    final token = await StorageService.getAccessToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+
+  @override
+  void onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    if (err.response?.statusCode == 401) {
+      // Token expired, refresh token
+      final refreshed = await _refreshToken();
+      if (refreshed) {
+        handler.resolve(await _retry(err.requestOptions));
+        return;
+      }
+    }
+    handler.next(err);
+  }
+}
+\end{verbatim}
+
+\pagebreak{}
+
+\subsubsection{Kullanıcı Arayüzü Tasarımı}
+
+Arayüz tasarımında Google Material Design 3.0 prensipleri uygulanmıştır \cite{google2023material}. Kullanılabilirlik (usability) için Nielsen'in 10 heuristiği \cite{nielsen1994usability} ve Norman'ın tasarım prensipleri \cite{norman2013design} dikkate alınmıştır.
+
+\textbf{Renk Paleti:}
+\begin{itemize}
+    \item \textbf{Birincil renk:} Turuncu (\#FF6B35) - yemek ve enerji temalarını yansıtır
+    \item \textbf{İkincil renk:} Yeşil (\#4CAF50) - sağlık ve doğallık hissi verir
+    \item \textbf{Arkaplan:} Beyaz (\#FFFFFF) ve açık gri (\#F5F5F5)
+    \item \textbf{Hata rengi:} Kırmızı (\#F44336)
+    \item \textbf{Başarı rengi:} Yeşil (\#4CAF50)
+\end{itemize}
+
+\textbf{Tipografi:}
+\begin{itemize}
+    \item \textbf{Ana font:} Roboto (Android) / San Francisco (iOS)
+    \item \textbf{Başlık boyutu:} 24sp (bold)
+    \item \textbf{Alt başlık:} 18sp (medium)
+    \item \textbf{Gövde metni:} 14sp (regular)
+    \item \textbf{Küçük metin:} 12sp (light)
+\end{itemize}
+
+\subsubsection{Çoklu Dil Desteği (Localization)}
+
+Mobil uygulama Türkçe ve İngilizce dillerini desteklemektedir. flutter\_localizations ve intl paketleri kullanılarak çoklu dil desteği sağlanmıştır.
+
+\textbf{Uygulama Özellikleri:}
+\begin{itemize}
+    \item \textbf{ARB dosyaları:} app\_tr.arb ve app\_en.arb dosyalarında çeviriler saklanmaktadır
+    \item \textbf{Otomatik kod üretimi:} Flutter build runner ile AppLocalizations sınıfı otomatik üretilmektedir
+    \item \textbf{Dinamik dil değiştirme:} Kullanıcı profil ekranından dil seçimi yapabilmekte ve uygulama yeniden başlatmadan dil değişmektedir
+    \item \textbf{Tarih formatları:} DateFormat kullanılarak yerelleştirilmiş tarih gösterimleri sağlanmaktadır
+\end{itemize}
+
+\textbf{Desteklenen Diller:}
+\begin{itemize}
+    \item Türkçe (tr)
+    \item İngilizce (en)
+\end{itemize}
+
+\subsubsection{Veri Görselleştirme}
+
+İstatistik ekranında grafik gösterimi için \texttt{fl\_chart} paketi kullanılmıştır. Paket, line chart, bar chart ve pie chart gibi çeşitli grafik türlerini desteklemektedir.
+
+\textbf{Grafik Türleri:}
+\begin{itemize}
+    \item \textbf{Line Chart:} 7 günlük kalori trend grafiği
+    \item \textbf{Bar Chart:} Haftalık öğün dağılımı
+    \item \textbf{Pie Chart:} Öğün türlerine göre kalori dağılımı
+\end{itemize}
+
+\pagebreak{}
+
+\subsubsection{Mobil Uygulama Dağıtımı}
+
+\textbf{Android Platform:}
+\begin{itemize}
+    \item Android studio
+\end{itemize}
+
+\textbf{iOS Platform:}
+\begin{itemize}
+    \item ios simulator
+    \item Xcode build tools ve provisioning profile
+\end{itemize}
+
+\pagebreak{}

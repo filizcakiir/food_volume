@@ -10,12 +10,18 @@ Sistem testleri, aşağıdaki donanım ve yazılım konfigürasyonlarında gerç
 
 \textbf{Backend Test Ortamı:}
 \begin{itemize}
-    \item \textbf{İşlemci:} Apple M1 Pro (8 core CPU, 14 core GPU)
+    \item \textbf{İşlemci:} Apple M2 (8-core CPU, 10-core GPU)
     \item \textbf{Bellek:} 16 GB Unified Memory
     \item \textbf{İşletim Sistemi:} macOS Sonoma 14.0
     \item \textbf{Python Versiyonu:} 3.11.5
     \item \textbf{PyTorch:} 2.3.1 (MPS backend)
     \item \textbf{TensorFlow:} 2.16.1 (Metal acceleration)
+\end{itemize}
+
+\textbf{Model Eğitim Ortamı:}
+\begin{itemize}
+    \item \textbf{GPU:} NVIDIA RTX 3060 (12 GB VRAM)
+    \item \textbf{Eğitim Süresi:} 200 epoch
 \end{itemize}
 
 \textbf{Mobil Test Cihazları:}
@@ -107,15 +113,15 @@ Bu proje kapsamında, ResNet50'nin tüm katmanları unfreeze edilerek end-to-end
 
 \subsection{Segmentasyon ve Ağırlık Tahmini}
 
-\subsubsection{U2-Net Segmentasyon Modeli}
+\subsubsection{U²-Net Segmentasyon Modeli}
 
-U2-Net modeli, yemek görüntülerinden arka plan ayrıştırması için entegre edilmiştir. Segmentasyon kalitesi, Intersection over Union (IoU) metriği ile değerlendirilebilir \cite{rezatofighi2019giou}:
+U²-Net modeli, yemek görüntülerinden arka plan ayrıştırması için entegre edilmiştir. Segmentasyon kalitesi, Intersection over Union (IoU) metriği ile değerlendirilebilir \cite{rezatofighi2019giou}:
 
 \begin{equation}
 \text{IoU} = \frac{\text{Area of Overlap}}{\text{Area of Union}} = \frac{TP}{TP + FP + FN}
 \end{equation}
 
-\textbf{U2-Net Model Özellikleri:}
+\textbf{U²-Net Model Özellikleri:}
 \begin{itemize}
     \item \textbf{Mimari:} U2NET-P (lightweight version, 4.7MB)
     \item \textbf{Giriş/Çıkış:} 320×320 RGB → 320×320 binary mask
@@ -125,7 +131,7 @@ U2-Net modeli, yemek görüntülerinden arka plan ayrıştırması için entegre
 
 \textbf{Segmentasyon Performansı:}
 
-U2-Net modeli, literatürde semantik segmentasyon görevlerinde yüksek performans gösterdiği raporlanmıştır \cite{qin2020u2net}. Yemek segmentasyonu için beklenen IoU değerleri:
+U²-Net modeli, literatürde semantik segmentasyon görevlerinde yüksek performans gösterdiği raporlanmıştır \cite{qin2020u2net}. Yemek segmentasyonu için beklenen IoU değerleri:
 \begin{itemize}
     \item Belirgin konturlu yemekler (pizza, steak): IoU > 0.85
     \item Heterojen yapılı yemekler (salata, pilav): IoU 0.70-0.85
@@ -215,7 +221,7 @@ Sistemin tüm bileşenlerinin entegrasyonunu doğrulamak için pizza görüntüs
 \textbf{Test Senaryosu:}
 \begin{itemize}
     \item \textbf{Görüntü:} Pizza fotoğrafı
-    \item \textbf{İşlem:} Image upload → ResNet50 classification → U2-Net segmentation → Weight estimation → Calorie calculation
+    \item \textbf{İşlem:} Image upload → ResNet50 classification → U²-Net segmentation → Weight estimation → Calorie calculation
     \item \textbf{Ortam:} Development (Apple M1 Pro, macOS)
 \end{itemize}
 
@@ -252,12 +258,12 @@ Sonraki İstekler & ~1.8 saniye \\ \hline
 Backend uygulamasının bellek kullanımı:
 
 \begin{itemize}
-    \item \textbf{Model Dosyaları:} ResNet50 (191 MB), U2-Net (4.7 MB)
+    \item \textbf{Model Dosyaları:} ResNet50 (191 MB), U²-Net (4.7 MB)
     \item \textbf{Runtime Bellek:} Modeller yüklendikten sonra ~600-700 MB
     \item \textbf{Optimizasyon:} Singleton pattern ile tek instance, lazy loading ile ihtiyaç anında yükleme
 \end{itemize}
 
-MiDaS modeli implement edilmiş ancak şu an pasif durumdadır (gelecekte hacim hesaplama için aktifleştirilebilir).
+MiDaS modeli sisteme entegre edilmiş ve ağırlık tahmin algoritmasında destekleyici veri olarak kullanılmaktadır.
 
 \pagebreak{}
 
@@ -301,7 +307,7 @@ Veri gizliliği & Sunucu & Sunucu & Sunucu & Hibrit \\ \hline
 \begin{enumerate}
     \item \textbf{Fotoğraftan Otomatik Gram Ölçümü:} Piyasadaki uygulamaların çoğu, kullanıcıdan manuel porsiyon girişi talep etmektedir (örn: "1 dilim pizza", "orta boy tabak"). GastronomGöz, segmentasyon ve porsiyon algoritması ile fotoğraftan direkt gram cinsinden ağırlık tahmini yapmaktadır. Bu özellik, kullanıcı deneyimini önemli ölçüde iyileştirmektedir.
 
-    \item \textbf{U2-Net Segmentasyon:} Lightweight U2-Net modeli (4.7MB) ile hızlı ve etkili segmentasyon. Ticari uygulamaların çoğu temel segmentasyon veya segmentasyon olmadan çalışmaktadır.
+    \item \textbf{U²-Net Segmentasyon:} Lightweight U²-Net modeli (4.7MB) ile hızlı ve etkili segmentasyon. Ticari uygulamaların çoğu temel segmentasyon veya segmentasyon olmadan çalışmaktadır.
 
     \item \textbf{Türkçe Dil Desteği:} Türkçe kullanıcı arayüzü ve yerelleştirilmiş içerik. Mevcut uygulamaların çoğu sadece İngilizce veya sınırlı Türkçe desteği sunmaktadır.
 
@@ -333,47 +339,6 @@ Pouladzadeh \cite{pouladzadeh2014volume} & 81.5\% & Referans nesne (özel kart) 
 \end{table}
 
 GastronomGöz, Food-101 gibi challenging veri setinde transfer learning ile makul performans elde etmiştir. Porsiyon-bazlı ağırlık tahmini yaklaşımı, kullanıcıdan ek efor (referans nesne yerleştirme) gerektirmemesi açısından avantajlıdır.
-
-\subsection{Planlanan Kullanıcı Testleri ve Değerlendirme}
-
-\subsubsection{Kullanılabilirlik Test Planı}
-
-Sistemin kullanıcı deneyimini değerlendirmek için kapsamlı kullanılabilirlik test planı hazırlanmıştır:
-
-\textbf{Hedef Katılımcı Profili:}
-\begin{itemize}
-    \item Yaş aralığı: 18-55
-    \item Farklı kalori takibi deneyim seviyeleri (yeni başlayan, orta, deneyimli)
-    \item Mevcut uygulamaları kullananlar ve kullanmayanlar
-    \item En az 15-20 katılımcı
-\end{itemize}
-
-\textbf{Planlanan Test Görevleri:}
-\begin{enumerate}
-    \item Kayıt olma ve profil oluşturma
-    \item Yemek fotoğrafı çekme ve tahmin alma
-    \item Sonuçları değerlendirme ve doğruluğu kontrol etme
-    \item Farklı yemek türlerinde (katı, sıvı, karışık) test yapma
-\end{enumerate}
-
-\textbf{Değerlendirme Metrikleri:}
-\begin{itemize}
-    \item Görev tamamlama oranı
-    \item Görev tamamlama süresi
-    \item System Usability Scale (SUS) Skoru
-    \item Kullanıcı memnuniyeti anketi
-    \item Tahmin doğruluğu algısı (perceived accuracy)
-\end{itemize}
-
-\textbf{Beklenen Değerlendirme Alanları:}
-\begin{itemize}
-    \item Kullanım kolaylığı ve öğrenme eğrisi
-    \item Tahmin hızı ve sonuç güvenilirliği
-    \item Arayüz tasarımı ve kullanıcı akışı
-    \item İyileştirme önerileri ve özellik talepleri
-\end{itemize}
-
-\textbf{Not:} Kullanıcı testleri, sistemin tam entegrasyonundan sonra gerçekleştirilecektir. Şu ana kadar pilot düzeyde teknik testler (pizza testi) yapılmıştır.
 
 \pagebreak{}
 

@@ -1,0 +1,31 @@
+\section{SONUÇ}
+
+Bu tez çalışmasında, derin öğrenme tabanlı otomatik yemek tanıma ve kalori hesaplama sistemi olan GastronomGöz geliştirilmiştir. Sistem, kullanıcıların mobil aygıtları ile çektikleri yemek fotoğraflarından yemek türünü, porsiyon ağırlığını ve kalori değerini otomatik olarak belirlemektedir.
+
+Sistemin temel bileşenleri ve elde edilen başarım sonuçları şunlardır: Food-101 veri kümesi üzerinde 200 epoch ince ayar yapılmış ResNet50 sınıflandırma modeli \%73 doğrulama başarımı elde etmiştir. U²-Net bölütleme modeli (4.7MB) ve MiDaS derinlik bilgisi desteği başarıyla bütünleştirilmiş, referans nesneye gerek duymayan porsiyon bazlı ağırlık tahmini algoritması geliştirilmiştir. Flask çatısı ile RESTful API mimarisi tasarlanmış, 25 uç nokta ve ağ belirteci tabanlı kimlik doğrulama sistemi gerçekleştirilmiştir. Flutter ile çapraz platform mobil uygulama tam işlevsel olarak geliştirilmiş, iOS ve Android platformlarında çalışmaktadır. Yanıt süresi önbellekleme sonrası 1.8 saniye olarak ölçülmüş, pilot test kapsamında pizza görüntüsü \%99.99 güven değeri ile doğru sınıflandırılmıştır. Türkçe dil desteği ve yerelleştirilmiş kullanıcı arayüzü başarıyla uygulanmıştır.
+
+\begin{table}[h]
+\centering
+\caption{GastronomGöz Performans Özeti}
+\label{tab:performance_summary}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Metrik} & \textbf{Gerçekleşen} & \textbf{Hedeflenen/Beklenen} \\ \hline
+Sınıflandırma Başarımı & 73\% & Food-101 SOTA: ~85-90\% \\ \hline
+Model Eğitimi & 200 dönem & - \\ \hline
+Bölütleme & U²-Net (4.7MB) & IoU > 0.75 (beklenen) \\ \hline
+Ağırlık Tahmini & Porsiyon-bazlı & RMSE < 15g (hedef) \\ \hline
+Yanıt Süresi (önbellek sonrası) & ~1.8 saniye & < 2 saniye \\ \hline
+İlk İstek (model yükleme) & 10.7 saniye & - \\ \hline
+Pilot Test & Pizza (\%99.99 güven) & - \\ \hline
+\end{tabular}
+\end{table}
+
+Bu çalışmanın bilim ve teknoloji alanına sağladığı ana katkılar şunlardır: (i) Referans nesne gerektirmeyen, bölütleme maskesi alanı ve yemek sınıfına özgü porsiyon veritabanını kullanan bir ağırlık tahmini algoritması geliştirilmiştir. (ii) Tekil nesne örüntüsü ve geç yükleme ile tasarlanan model yönetim sistemi, sınırlı kaynaklı mobil ortamlarda verimli çalışabilmektedir. (iii) Türkiye'de Türkçe dil desteği ve yerelleştirilmiş kullanıcı arayüzü sunan kapsamlı bir yemek tanıma sistemi gerçekleştirilmiştir. (iv) Arka uç programlama arayüzü, yapay zeka modelleri, veritabanı yönetimi ve çapraz platform mobil uygulama teknolojilerini kapsayan eksiksiz bir sistem mimarisi tasarlanmıştır.
+
+GastronomGöz sisteminin ilerletilmesi için önerilen gelecek çalışma alanları şunlardır: Mask R-CNN veya YOLACT gibi örnek bölütleme yöntemleri ile tabakta birden fazla yemek tanıma özelliği eklenebilir \cite{he2017mask, bolya2019yolact}. Farklı ülkelerin geleneksel yemekleri için görüntü toplama ve etiketleme çalışması yapılarak özel veri kümeleri oluşturulabilir. MiDaS modelinin aktif kullanımı ile tek görüntüden üç boyutlu hacim yeniden oluşturumu gerçekleştirilerek ağırlık tahmini doğruluğu artırılabilir. Model nicemleme ve budama teknikleri ile modeller küçültülerek mobil aygıtlarda aygıt üzerinde çıkarım sağlanabilir. Protein, karbonhidrat, yağ, vitamin ve mineral değerlerinin de hesaplanması sağlanarak besin değerleri analizi genişletilebilir.
+
+Sonuç olarak, GastronomGöz sistemi el ile kalori takibinin işlemsel yükünü azaltarak kullanıcıların sağlıklı beslenme alışkanlıklarını sürdürmelerini kolaylaştırmayı hedeflemektedir. Elde edilen sonuçlar, sistemin temel bileşenlerinin başarıyla bütünleştiğini ve pilot test ile uçtan uca çalışmanın doğrulandığını göstermektedir. Sistem, gelecek geliştirmelerle daha da iyileştirilebilir ve obezite ile metabolik hastalıklarla mücadelede teknoloji destekli bir çözüm olma potansiyeline sahiptir. Bu çalışma, derin öğrenme ve mobil teknolojilerin sağlık alanındaki uygulamalarına örnek teşkil etmekte ve gelecek araştırmalar için sağlam bir temel oluşturmaktadır.
+
+
+

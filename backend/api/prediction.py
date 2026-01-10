@@ -14,6 +14,8 @@ from models.history import PredictionHistory, DailyLog
 from core.ai_engine import get_model_manager
 from core.image_processor import process_food_image
 from core.weight_calculator import estimate_food_weight
+from services.notification_service import AchievementService, StreakService
+from flask import g
 
 prediction_bp = Blueprint('prediction', __name__)
 
@@ -139,6 +141,25 @@ def predict():
             f"Prediction saved: {result['food_class']} "
             f"({estimated_grams}g, {calories} kcal)"
         )
+
+        # Trigger achievements/streak only when a meal is actually saved
+        if meal_type:
+            try:
+                AchievementService.check_and_award_achievements(
+                    current_user_id,
+                    context='prediction'
+                )
+                StreakService.update_user_streak(
+                    current_user_id,
+                    activity_date=prediction.created_at.date()
+                )
+
+                # Cache result for downstream UI (e.g., to reduce extra calls)
+                g.streak_updated = True
+            except Exception as notify_err:
+                current_app.logger.warning(
+                    f"Notification/streak trigger failed: {notify_err}"
+                )
 
         # Return response
         return jsonify({

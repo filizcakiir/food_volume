@@ -54,4 +54,4 @@ flutter:
   generate: true
 
   assets:
-    - assets/l10n/
+    - lib/l10n/

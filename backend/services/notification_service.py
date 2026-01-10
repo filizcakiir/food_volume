@@ -13,7 +13,7 @@ This service handles:
 import logging
 from datetime import datetime, date
 from typing import Optional, Dict, List
-from flask import current_app
+from flask import current_app, request
 from flask_mail import Mail, Message
 
 from models import db
@@ -30,6 +30,79 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask-Mail (will be configured in app.py)
 mail = Mail()
+
+
+def _get_user_lang(user_id: int) -> str:
+    """Return user language; prefers profile language, then Accept-Language, else en."""
+    # 1) User profile language (authoritative)
+    user = User.query.get(user_id)
+    if user and user.profile:
+        pref = getattr(user.profile, 'language', None)
+        if pref == 'tr':
+            return 'tr'
+        if pref == 'en':
+            return 'en'
+
+    # 2) Accept-Language header (fallback)
+    try:
+        accept_lang = (request.headers.get('Accept-Language', '') or '').lower()
+        if accept_lang.startswith('tr'):
+            return 'tr'
+        if accept_lang.startswith('en'):
+            return 'en'
+    except Exception:
+        pass
+
+    # 3) Default
+    return 'en'
+
+
+def _localize_achievement(achievement: Achievement, lang: str) -> Dict[str, str]:
+    """Return localized title/description for a given achievement."""
+    translations = {
+        'first_prediction': {
+            'name_tr': 'İlk Adım',
+            'desc_tr': 'İlk yemek tahminini yaptın'
+        },
+        '10_predictions': {
+            'name_tr': 'Başlangıç',
+            'desc_tr': '10 yemek tahmini yaptın'
+        },
+        '100_predictions': {
+            'name_tr': 'Yüzyıl Kulübü',
+            'desc_tr': '100 yemek tahmini yaptın'
+        },
+        '3_day_streak': {
+            'name_tr': 'Alışkanlık Geliştirici',
+            'desc_tr': '3 gün üst üste kayıt yaptın'
+        },
+        '7_day_streak': {
+            'name_tr': 'Hafta Savaşçısı',
+            'desc_tr': '7 gün üst üste kayıt yaptın'
+        },
+        '30_day_streak': {
+            'name_tr': 'Aylık Usta',
+            'desc_tr': '30 gün üst üste kayıt yaptın'
+        },
+        '7_days_goal': {
+            'name_tr': 'Hedef Avcısı',
+            'desc_tr': '7 gün üst üste günlük kalori hedefini tutturdun'
+        },
+        'healthy_week': {
+            'name_tr': 'Sağlıklı Hafta',
+            'desc_tr': 'Bir haftada 5 kez sebze/salata kaydettin'
+        },
+    }
+
+    if lang == 'tr':
+        tr = translations.get(achievement.code, {})
+        name = tr.get('name_tr', achievement.name)
+        desc = tr.get('desc_tr', achievement.description)
+    else:
+        name = achievement.name
+        desc = achievement.description
+
+    return {'name': name, 'description': desc}
 
 
 class NotificationService:
@@ -423,11 +496,21 @@ class AchievementService:
         achievement = Achievement.query.get(achievement_id)
 
         # Send notification
+        lang = _get_user_lang(user_id)
+        localized = _localize_achievement(achievement, lang)
+
+        if lang == 'tr':
+            title = f"Başarı Açıldı: {localized['name']}"
+            message = f"Tebrikler! {localized['description']}"
+        else:
+            title = f'Achievement Unlocked: {localized["name"]}'
+            message = f'Congratulations! {localized["description"]}'
+
         NotificationService.create_notification(
             user_id=user_id,
             notification_type='achievement',
-            title=f'Achievement Unlocked: {achievement.name}',
-            message=f'Congratulations! {achievement.description}',
+            title=title,
+            message=message,
             data={
                 'achievement_id': achievement_id,
                 'achievement_code': achievement.code,
@@ -479,11 +562,19 @@ class StreakService:
 
             # Send streak milestone notification
             milestone = result['milestone_reached']
+            lang = _get_user_lang(user_id)
+            if lang == 'tr':
+                title = f'{milestone} Günlük Seri!'
+                message = f'{milestone} gündür üst üste kayıt yapıyorsun, devam!'
+            else:
+                title = f'{milestone} Day Streak!'
+                message = f'Amazing! You\'ve logged food for {milestone} consecutive days. Keep it up!'
+
             NotificationService.create_notification(
                 user_id=user_id,
                 notification_type='streak',
-                title=f'{milestone} Day Streak!',
-                message=f'Amazing! You\'ve logged food for {milestone} consecutive days. Keep it up!',
+                title=title,
+                message=message,
                 data={'streak': milestone},
                 send_email=True,
                 send_push=True
@@ -491,11 +582,19 @@ class StreakService:
 
         # Send notification if streak broken
         elif result.get('streak_broken') and result['previous_streak'] >= 3:
+            lang = _get_user_lang(user_id)
+            if lang == 'tr':
+                title = 'Seri Bozuldu'
+                message = f"{result['previous_streak']} günlük serin sona erdi. Bugün yeniden başlayabilirsin!"
+            else:
+                title = 'Streak Broken'
+                message = f'Your {result["previous_streak"]} day streak has ended. Start a new one today!'
+
             NotificationService.create_notification(
                 user_id=user_id,
                 notification_type='streak',
-                title='Streak Broken',
-                message=f'Your {result["previous_streak"]} day streak has ended. Start a new one today!',
+                title=title,
+                message=message,
                 data={'previous_streak': result['previous_streak']},
                 send_email=False,
                 send_push=True

@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Camera & gallery access -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- For API 33+, READ_MEDIA_IMAGES; below uses WRITE/READ external -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <application
         android:label="food_calorie_app"
         android:name="${applicationName}"

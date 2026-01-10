@@ -33,6 +33,8 @@ from schemas.history_schema import (
     HistoryFilterSchema,
     DateRangeSchema
 )
+from services.notification_service import AchievementService, StreakService
+from flask import g
 
 # Blueprint creation
 history_bp = Blueprint('history', __name__)
@@ -102,7 +104,11 @@ def list_predictions():
         return error_response(err.messages, 400)
 
     user_id = get_jwt_identity()
+    # Default: show only saved items (meal_type set). To include drafts, pass include_unsaved=true
+    include_unsaved = request.args.get('include_unsaved', 'false').lower() == 'true'
     query = PredictionHistory.query.filter_by(user_id=user_id)
+    if not include_unsaved:
+        query = query.filter(PredictionHistory.meal_type.isnot(None))
 
     # Apply filters
     if filters.get('meal_type'):
@@ -223,6 +229,20 @@ def update_prediction(prediction_id):
             if old_meal_type is None and new_meal_type is not None:
                 daily_log.total_calories += prediction.calories
                 daily_log.total_meals += 1
+
+                # Trigger achievements/streak for newly saved meals
+                try:
+                    AchievementService.check_and_award_achievements(
+                        user_id,
+                        context='prediction'
+                    )
+                    StreakService.update_user_streak(
+                        user_id,
+                        activity_date=prediction.created_at.date()
+                    )
+                    g.streak_updated = True
+                except Exception as notify_err:
+                    logger.warning(f"Notification/streak trigger failed: {notify_err}")
 
             # Remove calories from old meal_type
             if old_meal_type == 'breakfast':
@@ -352,6 +372,7 @@ def get_daily_log():
     start_of_day = datetime.combine(target_date, datetime.min.time())
     end_of_day = start_of_day + timedelta(days=1)
 
+    # Only include saved meals (meal_type set); otherwise taslaklar da sayılıyor
     macros = db.session.query(
         func.sum(PredictionHistory.calories).label('total_cals'),
         func.sum(func.coalesce(PredictionHistory.protein, 0)).label('total_protein'),
@@ -360,7 +381,8 @@ def get_daily_log():
     ).filter(
         PredictionHistory.user_id == user_id,
         PredictionHistory.created_at >= start_of_day,
-        PredictionHistory.created_at < end_of_day
+        PredictionHistory.created_at < end_of_day,
+        PredictionHistory.meal_type.isnot(None)
     ).first()
 
     # Add macros to response
