@@ -249,3 +249,9 @@ mobile/*/coverage/
 !mobile/*/ios/Runner.xcodeproj/project.pbxproj
 !mobile/*/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 !mobile/*/ios/Runner/Info.plist
+
+# ============================================
+# PERSONAL / PRIVATE FILES
+# ============================================
+FLUTTER_KURULUM_DURUM.md
+gastronomgöz yapılanlar/
